@@ -1,0 +1,52 @@
+
+TODO for stencil.f:
+1. Fix MPI bug with more than 2 processes
+
+2. Ensure parallelization on GPU:
+
+  a. See how compiler  is parallelizing on GPU
+
+  b. Ensure that code is running in parallel on GPU. Getting some Profiling to output , e.g., nvprof.
+
+3. Link the over-decomposition library (not complete yet, stubs) to stencil.f , and apply the library
+4. Generating output row for each experiment so it can be post=processed.
+
+# This file contains a description of experiments to run, and the methodology to run them.
+
+# GPU-ization project: Does using an accelerator architecture provide significant performance benefit over MPI-everywhere for regular stencil-type computation ? The challenge is that the number of floating point operations per data points per timestep is small, making data movement dominate the execution thus reducing the benefit of GPU.
+
+#Q1: Since the timestep is small, the kernel startup costs are high.
+
+#Exp1: Quantify kernel startup cost and verify that firing a kernel with full data copy each time is not beneficial.
+
+#Q2: If the data per node is sufficiently small that it fits within the device memory, an alternative becomes possible: here, we move most of the data, i.e., entire tile, to the GPU once at the beginning of thecomputation and then in every iteration only move the boundaries  / halos between CPU and GPU.
+
+Is this method adequate to overcome kernel startup cost?
+
+Experiment: implement this method and answer the above question for different stencil tile sizes.
+
+If the above works, additional optimization is to use GPU-direct so that boundaries can be exchanged without needing anything on the host.
+
+
+# Over-decomposition project :
+
+# The top-level question is: to what extent does overdecomposition allow for improved effiency of regular mesh computation and more generally scientific computation?
+
+# Question 1: Does varying the granularity of the size of the over-decomposed tasklet/patch impact performance?
+
+# Exp1: For fixed problem size running on a single node: Experiment with different tasklet grain sizes : x-axis chunk size, y-axis Wall Clock Time
+
+# Q2: What impact does the domain decomposition have?
+
+# Exp2: For fixed problem size running on a single node: Experiment with different tasklet grain sizes : x-axis chunk size, y-axis Wall Clock Time ?
+
+# Q3: What impact does the scheduling strategy have?
+
+# Exp3 : Compare static, dynamic, hybrid static/dynamic scheduling(dynamic can be work-stealing or single shared queue). Considerations might be locality and synchronization overhead, especially in presence of large number of cores.
+
+The idea is to explore these questions using a simple stencil-like codeso these questions can be explored without getting bogged down into the details of a complex application like plascomcm. The resultant/ winning strategies can be applied to PlasComCM.
+
+
+# Combine  GPU-ization and over-decomposition
+
+Each tile (task) can be run on GPU or run on a core of a CPU. For avoiding the data movement costs, a tile permanently resides on GPU or on CPU. This will possibly require some sort of autonomous scheduler running on the GPU. Since all tiles will have neighbors on GPU -can you fire a kernel on the GPU?

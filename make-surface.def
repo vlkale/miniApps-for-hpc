@@ -1,0 +1,21 @@
+# Makefile define file for mesh computation program on Surface.
+
+# surface / int-xeon
+FC=mpif90
+F77=mpif77
+CC=mpicc
+
+# Use -Mpreprocess since we are compiling a .f file
+FCFLAGS=-fPIC -Mpreprocess -Mfree -g -I/usr/local/tools/mvapich-pgi-2.1/include/ -Mmpi=mpich -byteswapio
+
+# Basic flag for trading off numerical accuracy with performance
+# -Mfprelaxed -Mpfi -Mpfo
+
+# check usage of this  flag
+# -Msafeptr
+
+F77FLAGS=-fPIC -Mpreprocess -Mfree -g -Mmpi=mpich -Mbyteswapio
+CCFLAGS=-fPIC -Mpreprocess -Mfree -g -Mmpi=mpich
+
+OPENACCFLAGS= -acc -ta=nvidia,fastmath -fast -Minfo=accel -L/opt/cudatoolkit-7.5/lib64/ -DHAVE_OPENACC -L/usr/local/tools/mvapich-pgi-2.1/lib/
+OPENMPFLAGS=-mp -L/usr/local/tools/mvapich2-pgi-2.1/lib/ -DHAVE_OPENMP

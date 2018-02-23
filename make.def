@@ -1,0 +1,55 @@
+# Makefile for stencil code 
+
+# MAC OS 
+
+
+#FC = mpif90-mpich-gcc5 
+#F77 = mpif77-mpich-gcc5 
+#CC = mpicc-mpich-gcc5
+
+FCFLAGS=-fPIC -ffree-form -g
+F77FLAGS=-fPIC -ffree-form -g
+CCFLAGS= "" 
+
+#OPENACCFLAGS=-fopenacc
+#OPENMPFLAGS=-fopenmp
+
+# xpacc-clust
+# FC = pgf90
+# F77 = pgf77
+# CC = pgcc
+
+# FCFLAGS=-fPIC -Mfree -Mmpi=mpich -g
+# F77FLAGS=-fPIC -Mfree -Mmpi=mpich -g
+# CCFLAGS= -fPIC -Mfree -Mmpi=mpich -g
+
+# OPENACCFLAGS=-acc -ta=nvidia:tesla
+# OPENMPFLAGS= -mp 
+
+# BW - PGI 
+
+# FC = mpipgf90
+# F77 = mpipgf77
+# CC = mpipgcc
+
+# FCFLAGS=-fPIC -Mfree -g
+# F77FLAGS=-fPIC -Mfree -Mmpi=mpich -g
+# CCFLAGS= -fPIC -Mfree -g
+
+# OPENACCFLAGS=-acc -ta=nvidia:tesla -mcmodel=medium -lcudart
+# OPENMPFLAGS= -mp 
+
+# BW - cray
+
+ FC = ftn
+ F77 = ftn
+ CC = cc
+
+ FCFLAGS=-fPIC -Mfree -g
+ F77FLAGS=-fPIC -Mfree -g
+ CCFLAGS= -fPIC -Mfree -g
+
+ OPENACCFLAGS= -h acc -ta=nvidia:tesla
+ OPENMPFLAGS= -h omp
+
+# surface
