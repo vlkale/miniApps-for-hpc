@@ -6,7 +6,7 @@ The codes with filenames jacobi.* are miniApps used for experimentation of plasm
 
 The code named ptytomo.C is a mini-app MPI+CUDA code compiled run and tested on NVIDIA Tesla P100 representative of a larger X-ray imaging program implemented with MPI+CUDA and run on NVIDIA Tesla P100. The mini-app code is used to guide improving performance, in particular compiler flag optimizations, loop transformations, and new half-precision CUDA functions available for the P100, of the larger application code involving a 2-D image reconstruction using ptychography followed by 3-D image reconstruction using tomography.
 
-# Notes on Installing and Running
+% # Notes on Installing and Running
 
 
-# TODO
+% # TODO
