@@ -1,6 +1,6 @@
 /**
    Written by: Vivek Kale
-   Last Edited: May 8, 2017
+   Last Edited: September 8, 2018
 
    Description: Code for doing a dot product for two input vectors. 
    The code first performs an element-wise vector product and then obtains the dot product.
@@ -42,7 +42,7 @@ __global__ void mult( int *a, int *b, int *c ) {
 
 
 
-int (int argc, char* argv[] )
+int main (int argc, char* argv[] )
 {
   // Size of vectors 
   int n = 10000;
