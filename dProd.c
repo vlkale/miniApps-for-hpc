@@ -1,6 +1,6 @@
 /**
    Written by: Vivek Kale
-   Last Edited: September 8, 2018
+   Last Edited: December 18, 2019
 
    Description: Code for doing a dot product for two input vectors. 
    The code first performs an element-wise vector product and then obtains the dot product.
