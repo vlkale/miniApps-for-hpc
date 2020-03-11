@@ -136,7 +136,6 @@
       integer (kind = 4) num_args
 
       num_args = command_argument_count() ! TODO: Fix this to ensure the function is returning expected arguments.
-      num_args = 5
       if (num_args .gt. 3) then
           call getarg(1, arg)
           read(arg,*) N
@@ -270,11 +269,11 @@
 
 ! TODO: Figure out whether the below should operate on 1, N+2 or 2, N+1.
            if (rank == 0) then
-              !$ACC kernels loop copy(topHalo(1:N+2)) pcopy(a(2,1:N+2))
+!$ACC kernels loop copy(topHalo(1:N+2)) pcopy(a(2,1:N+2))
               do i = 1, N+2
                  topHalo(i) = a(2, i)
               end do
-              !$ACC end kernels
+!$ACC end kernels loop
            end if
 
            if (rank == (size-1)) then
@@ -282,7 +281,7 @@
               do i = 1, N+2
                  bottomHalo(i) = a(ht-1, i)
               end do
-              !$ACC end kernels
+              !$ACC end kernels loop
            end if
 #endif
 
@@ -291,7 +290,8 @@
 ! Consider different schemes here, including GPU direct and copying the entire data array into the matrix
 
 !Note : we  don't need create(k) since we have acc loop seq
-!$ACC kernels present(a(1:ht, 1:N+2)) pcreate(b(2:ht-1, 2:N+1)) copyin(topHalo(1:N+2), bottomHalo(1:N+2)) copyout(topBoundary(1:N+2), bottomBoundary(1:N+2)) pcopyin(rank, size)
+!$ACC kernels present(a(1:ht, 1:N+2)) pcreate(b(2:ht-1, 2:N+1)) copyin(topHalo(1:N+2), bottomHalo(1:N+2)) &
+!$ACC copyout(topBoundary(1:N+2), bottomBoundary(1:N+2)) pcopyin(rank, size)
 
            !$ACC loop
            do i = 2,N+1
@@ -480,17 +480,21 @@ do k = 1, FLOP
          ! TODO: may need to find a unsigned long for problem size
 
 #ifdef HAVE_OPENACC
-         #ifdef USE_ALLOCATABLE
-         write(10, '(A, I7, I7, I7, A, A, I7, I7, A, f8.3, f8.3, f8.3)') '\t stn', N*Ny, FLOP, nSteps, '\t ifp', '\t oac', size, nthds, '\t alc', endTime - startTime, 0.0, 0.0
-        #else
-         write(10, '(A, I7, I7, I7, A, A, I7, I7, A, f8.3, f8.3, f8.3)') '\t stn', N*Ny, FLOP, nSteps, '\t ifp', '\t oac', size, nthds, '\t ptr', endTime - startTime, 0.0, 0.0
-         #endif
+#ifdef USE_ALLOCATABLE
+         write(10, '(A, I7, I7, I7, A, A, I7, I7, A, f8.3, f8.3, f8.3)') '\t stn', N*Ny, FLOP, nSteps, '\t ifp', '\t oac', size, &
+                nthds, '\t alc', endTime - startTime, 0.0, 0.0
+#else
+         write(10, '(A, I7, I7, I7, A, A, I7, I7, A, f8.3, f8.3, f8.3)') '\t stn', N*Ny, FLOP, nSteps, '\t ifp', '\t oac', size, &
+                nthds, '\t ptr', endTime - startTime, 0.0, 0.0
+#endif
 #elif HAVE_OPENMP
-         #ifdef USE_ALLOCATABLE
-         write(10, '(A, I7, I7, I7, A, A, I7, I7, A, f8.3, f8.3, f8.3)') '\t stn', N*Ny, FLOP, nSteps, '\t ifp', '\t omp', size, nthds, '\t alc', endTime - startTime, 0.0, 0.0
-        #else
-         write(10, '(A, I7, I7, I7, A, A, I7, I7, A, f8.3, f8.3, f8.3)') '\t stn', N*Ny, FLOP, nSteps, '\t ifp', '\t omp', size, nthds, '\t ptr', endTime - startTime, 0.0, 0.0
-          #endif
+#ifdef USE_ALLOCATABLE
+         write(10, '(A, I7, I7, I7, A, A, I7, I7, A, f8.3, f8.3, f8.3)') '\t stn', N*Ny, FLOP, nSteps, '\t ifp', '\t omp', size, &
+                nthds, '\t alc', endTime - startTime, 0.0, 0.0
+#else
+         write(10, '(A, I7, I7, I7, A, A, I7, I7, A, f8.3, f8.3, f8.3)') '\t stn', N*Ny, FLOP, nSteps, '\t ifp', '\t omp', size, &
+                nthds, '\t ptr', endTime - startTime, 0.0, 0.0
+#endif
 #endif
          close(10)
 

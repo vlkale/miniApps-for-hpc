@@ -1,4 +1,4 @@
-include make-bw.def
+include make-cori-gpu.def
 
 # macos
 #include make-macos.def
