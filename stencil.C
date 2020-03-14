@@ -8,7 +8,7 @@
 *  Brookhaven National Laboratory / Stony Brook University
 *************************************************************/
 
-#include "../framework/hpcTuner.h"
+//#include "../framework/hpcTuner.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -84,6 +84,105 @@ double* myLeftBoundary;
 double* myRightBoundary;
 double* myLeftGhostCells;
 double* myRightGhostCells;
+
+
+// function to use if compiling code standalone < --- hpctuner will take care of this in reality.
+int main(int argc, char** argv)
+	
+{
+  int rcProc;
+  long i;
+  void *status;
+  MPI_Init (&argc, &argv);
+  MPI_Comm_size (MPI_COMM_WORLD, &numprocs);
+  MPI_Comm_rank (MPI_COMM_WORLD, &rank);
+  numCores = NUM_CORES;
+  numNodes = NUM_NODES;
+  /*  cpu_set_t *cpuset; */
+  size_t size;
+	
+  if(argc >= 6 )
+    {
+      numthrds = atoi(argv[1]);
+      preProcessInput(argc, argv);      
+      numCores = atoi(argv[6]);
+      numNodes = atoi(argv[7]);
+      skipCoreCount = 0;
+    }
+  else
+    { 
+      if(rank == 0)
+	printf("Usage: mpirun -n [numthreadsPerProcess][numProcs][problemSizeDimensions][Use_MPI_Shmem] [locality_aware] [<numCoresPerNode>] [<numNodes>] \n");
+    }    
+  if(rank == 0)
+    {
+      printf("Beginning computation. Using %d processes and %d threads per process \n", numprocs ,numthrds );
+      snprintf(perfTestsFileName, 127, "outFile%d_%d_%d_%d_%d_%d.dat",atoi(argv[3]), atoi(argv[4]), atoi(argv[1]), atoi(argv[2]), atoi(argv[9]), atoi(argv[5]) , atoi(argv[8]));
+      
+      perfTestOutput = fopen("outFilePerfTests.dat", "a+");
+      perfTestOutput_Temp = fopen(perfTestsFileName, "w");   
+      if(perfTestOutput != NULL)
+	{
+	  fprintf(perfTestOutput, "#\t%ld_%d_%d_%d_%d_%d_%d\n",
+		  atol(argv[3]), atoi(argv[4]), 
+		  atoi(argv[1]), atoi(argv[2]),
+		  atoi(argv[9]), atoi(argv[5]), 
+		  atoi(argv[8])  ); 
+	  
+	  fprintf(perfTestOutput_Temp, "#\t%ld_%d_%d_%d_%d_%d_%d\n",
+		  atol(argv[3]), atoi(argv[4]),  atoi(argv[1]),atoi(argv[2]),
+		  atoi(argv[9]), atoi(argv[5]),  atoi(argv[8]) );	  
+	}
+     
+      fclose(perfTestOutput);
+      fclose(perfTestOutput_Temp);
+    }
+  processesPerNode = numprocs/numNodes;      
+  rankWithinNode = rank%processesPerNode;    
+	
+	
+	  /* BEGIN MAIN EXPERIMENTATION  */ 
+ for (trial = 0 ; trial < EXPERIMENT_ITERS; trial++)
+    {
+      startTime_Experiment = 0.0; 
+      endTime_Experiment = 0.0;
+      pthread_barrier_wait(&myBarrier);
+      startTime_Experiment = MPI_Wtime();   
+      runExperiment(i, myConfig);
+      threadTrialTime[trial][i] = MPI_Wtime() - startTime_Experiment; 
+      pthread_barrier_wait(&myBarrier);
+        
+      if (i == 0)
+	{
+	  endTime_Experiment = MPI_Wtime(); 
+	  trialTimes[trial] = endTime_Experiment - startTime_Experiment; 
+	  /* this is used for now, so that we can at least can max and min across all processes */
+	  maxThreadTrialTimes[trial] = endTime_Experiment - startTime_Experiment;
+	  minThreadTrialTimes[trial] = endTime_Experiment - startTime_Experiment;   
+	} 
+	pthread_barrier_wait(&myBarrier);
+    }
+ if (i == 0)  endTime_Experiment = MPI_Wtime(); 
+ 
+ pthread_barrier_wait(&myBarrier);  
+ 
+ /*END MAIN EXPERIMENTATION */
+	
+	
+	
+	 MPI_Barrier(MPI_COMM_WORLD);   
+    if (rank == 0)  
+      {
+	printf ("HPC Tuner Framework: Done with computation.\n"); 
+	/* printResults();*/
+      }
+    nodeCleanUp();
+    pthread_barrier_destroy(&myBarrier);
+    /* CPU_FREE(cpuset);  */
+    
+    rcProc = MPI_Finalize();
+	
+}
 
 double* jacobi3D(int threadID); 
 void printMatrix(double* matrix, int id, int matDimX, int matDimY, int matDimZ);
@@ -231,10 +330,12 @@ double* jacobi3D(int threadID)
 		}
 	    }
 	}
+	  
+	 
   
       threadIdleBegin = MPI_Wtime();
       pthread_barrier_wait(&myBarrier);
-      if( threadID==0 )
+      if( threadID==0)
 	    {
 	      communicationTimeEnd = MPI_Wtime();
 	      communicationTime += (communicationTimeEnd - communicationTimeBegin);
@@ -252,6 +353,16 @@ double* jacobi3D(int threadID)
       
   	  double tWorkBegin = MPI_Wtime(); 
       
+	  
+	  
+	  /*Note:  The variable sum is now mapped with tofrom, for correctexecution with 4.5 (and pre-4.5) compliant compilers. See Devices Intro.S-17*/
+	  
+	  // TODO: figure out how to separate gpu diff from node diff .
+	  // TODO: tune num teams , thread limit , distschedule , chunk size
+ #pragma omp target map(to: u[0:(X*Y*Z)], v[0:(X*Y*Z)]) map(tofrom: gpudiff)
+ #pragma omp teams num_teams(8) thread_limit(16) 
+ #pragma omp distribute parallel for dist_schedule(static, 1024) schedule(static, 64) 
+	  
  //     #pragma omp for schedule (guided, 4) // can use user-defined schedules here. 
 	    for(j = startj ; j < endj ; j++)
 	     {
@@ -297,7 +408,7 @@ double* jacobi3D(int threadID)
 	}
   
  
-      // TODO : need to add this back in .    
+      // TODO : need to add this back in .  
       if(threadID==0)
 	{
 	  /* MPI_Allreduce(&diff,  &global_diff, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD); */
@@ -426,4 +537,44 @@ double* jacobi3D(int threadID)
     }
   pthread_barrier_wait(&myBarrier);
   return u; // only need this if we want display result. - also need a norm for correctness and a number for answer. 
+}
+
+
+
+
+double getAvg(double* myArr, int size)
+{
+  int iter;
+  double currSum;
+  double average;
+  for (iter = 0; iter < size; iter++)
+    currSum += myArr[iter];
+  average = currSum/(size*1.0); 
+  return average;
+}
+double  getMax( double* myArr, int size     )
+{
+  int iter;
+  double currMax= 0.0;
+  for(iter = 0; iter < size; iter++)
+    if(currMax < myArr[iter])
+      currMax = myArr[iter];
+  return currMax;
+} 
+
+double getMin (double* myArr, int size)
+{
+  int iter;
+  double currMin = 99999.0;
+  for(iter = 0; iter < size; iter++)
+    if(currMin > myArr[iter])
+      currMin = myArr[iter];
+  return currMin;
+}
+
+double getRange(double* myArr, int size)
+{
+  double min = getMin(myArr, size);
+  double max = getMax(myArr, size);
+  return (max - min);
 }
