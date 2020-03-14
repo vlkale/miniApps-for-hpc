@@ -539,6 +539,166 @@ double* jacobi3D(int threadID)
   return u; // only need this if we want display result. - also need a norm for correctness and a number for answer. 
 }
 
+void initializeExperiment(int threadID, int p)
+{
+  int i;
+  int j;   
+  int k;
+  int chunkSize;
+  int iterations = 0;
+  chunkSize = X*Y*Z;
+  if(threadID ==0)
+    {
+      u = (double*) malloc((chunkSize)*sizeof(double)); 
+      w = (double*) malloc((chunkSize)*sizeof(double)); 
+    }
+  if(threadID == 0)
+    {
+      for(j = 1; j < Y -1; j++)
+	for(i = 1; i< X -1; i++)
+	  for(k = 1 ; k < Z -1; k ++)   
+	    {
+	      u[A(i, j, k)] = i*j*k*1.0;
+	      w[A(i, j, k)] = i*j*k*1.0;
+	    }
+      for(i = 0; i< X; i++)
+	for(k=0; k< Z; k++)
+	  {
+	    u[A(i, 0, k)] = 101.0;
+	    u[A(i, Y-1,k )] = -101.0;
+	    w[A(i, 0, k)] = 101.0;
+	    w[A(i, Y-1, k)] = - 101.0;
+	  }
+      
+      for(i=0; i < X; i++)
+	for(j=0;j < Y;j++)
+	  {
+	    u[A(i,j,0)] = 102.0;
+	    u[A(i,j,Y-1)] = -102.0;
+	    w[A(i,j,0)] = 102.0;
+	    w[A(i,j,Y-1)] = -102.0;
+	  }
+      if(id == 0 )
+	{
+	  for(j=0; j < Y; j++)
+	    for(k = 0; k< Z; k++) 
+	      {
+		u[A(0,j,k)] = 100.0;
+		w[A(0,j,k)] = 100.0;
+	      }
+	}
+      if( id == p-1)
+	{
+	  for(j=0; j < Y; j++)
+	    for(k = 0; k< Z; k++) 
+	      {
+		u[A(X-1,j,k)] = -100.0;
+		w[A(X-1,j,k)] = -100.0;
+	      }
+	}
+    }
+  
+  /*  queueSize = jacobiNumTasklets; */
+  queueSize = Y; 
+  if (threadID ==0)
+    {
+      if(NUMQUEUES == 1)
+	{
+	  jacobiWorkQueue =  (JacobiTasklet**) malloc(sizeof(JacobiTasklet*)*queueSize); 
+	}
+      else
+	{
+	  for(i = 0 ;  i < NUMQUEUES; i++)
+	    {
+	      jacobiWorkQueues[i].jacobiWorkQueue =  (JacobiTasklet**) malloc(sizeof(JacobiTasklet*)*(queueSize/NUMQUEUES));
+	      (&jacobiWorkQueues[i])->curr = 0;
+	      pthread_mutex_init (&(jacobiWorkQueues[i].workQueueMutex), NULL);
+	    }
+	}
+      enqueueTasklets();
+    }
+  pthread_barrier_wait(&myBarrier);
+}
+
+void preProcessInput(int input_argc, char* input_argv[])
+{
+  /* this is to take care of inconsistent naming I have done(TODO: change variable names) */
+  p = numprocs;
+  id = rank ; 
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(input_argc < 9)
+    {
+      printf("Usage: mpirun -n [numprocesses] jacobi-hybrid [numThreads][dynamic ratio] [numTasklets] [numQueues] [Xdim][Ydim][Zdim]\n");
+      exit(-1);
+      MPI_Finalize();
+    }
+  numThreads = atoi(input_argv[1]);  
+  NUMQUEUES = atoi(input_argv[4]);
+  Xdim = atoi(input_argv[8]); 
+  Ydim = atoi(input_argv[9]); 
+  Zdim = atoi(input_argv[10]);   
+  locality_aware = atoi(input_argv[5]);
+  jacobiNumTasklets  = atoi(input_argv[3]);    
+  if(rank ==0)
+    printf("numthreads = %d , NUMQUEUES = %d,   Xdim = %d , Ydim = %d , Zdim = %d  \n", numThreads,NUMQUEUES,  Xdim ,  Ydim, Zdim);
+  
+  if (Xdim%numprocs !=0) /* application-specific */
+    {
+      if(rank == 0)
+	printf("WARNING: Length of X dimension is not divisible by number of processes. \n" );
+    }
+  if(Ydim%numThreads != 0)
+    {
+      if(rank == 0)
+	printf("WARNING: Ydim specified is not divisible by the number of threads. \n" );
+    }
+  /*  application-specific partitioning */
+  Y =  (Ydim + 2);  
+  Y_dynamic = atoi(input_argv[2]); 
+  Y_static = (int) (Ydim - Y_dynamic); 
+  dynamic_ratio = (1.0*Y_dynamic)/(1.0*Ydim);  
+  Z = Zdim + 2;
+  X = (Xdim/numprocs) + 2; 
+
+  /* initialize thread mutices */ 
+  pthread_mutex_init (&mutexdiff, NULL);  
+  pthread_mutex_init (&workQueueMutex, NULL); 
+}
+
+int experimentCleanUp()
+{
+  return;
+  if(rank ==0)
+    printf("cleaning up experiment\n");
+  free(u);
+  free(w);
+  free(myLeftBoundary);
+  free(myRightBoundary);
+  free(myLeftGhostCells );
+  free(myRightGhostCells);
+  printf(" ended experiment Cleanup\n");
+}
+
+void nodeCleanUp()
+{
+  pthread_mutex_destroy(&mutexdiff);
+  pthread_mutex_destroy(&workQueueMutex);
+  pthread_mutex_destroy(&workQueueMutex1);
+  pthread_mutex_destroy(&workQueueMutex2);
+  int i ; 
+  for (i = 0;  i < NUMQUEUES; i++)
+    pthread_mutex_destroy(&(jacobiWorkQueues[i].workQueueMutex));
+}
+
+void printResults()
+{
+  /* application-specific */
+  printf("MPI/pthreads jacobi results shown below  \n");
+  /*
+    if( (id == 0) || (id == 1) || (id == p-2) || (id == p -1)  ) 
+    printMatrix(result, id, Z , Y, X);//prints horizontal slas  , with each slab separated by dashed lines 
+  */
+}
 
 
 
