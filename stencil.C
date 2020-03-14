@@ -75,6 +75,11 @@ extern double getMin(double*, int, int);
 extern double getAvg(double*, int, int);  
 extern double getRange(double*, int, int);  
 
+
+void preProcessInput(int input_argc, char* input_argv[]);
+void initializeExperiment(int threadID, int p);
+
+
 /* application-specific to jacobi */ 
 double* u;
 double* w; // global - gets updated on each jacobi iteration. 
@@ -85,104 +90,6 @@ double* myRightBoundary;
 double* myLeftGhostCells;
 double* myRightGhostCells;
 
-
-// function to use if compiling code standalone < --- hpctuner will take care of this in reality.
-int main(int argc, char** argv)
-	
-{
-  int rcProc;
-  long i;
-  void *status;
-  MPI_Init (&argc, &argv);
-  MPI_Comm_size (MPI_COMM_WORLD, &numprocs);
-  MPI_Comm_rank (MPI_COMM_WORLD, &rank);
-  numCores = NUM_CORES;
-  numNodes = NUM_NODES;
-  /*  cpu_set_t *cpuset; */
-  size_t size;
-	
-  if(argc >= 6 )
-    {
-      numthrds = atoi(argv[1]);
-      preProcessInput(argc, argv);      
-      numCores = atoi(argv[6]);
-      numNodes = atoi(argv[7]);
-      skipCoreCount = 0;
-    }
-  else
-    { 
-      if(rank == 0)
-	printf("Usage: mpirun -n [numthreadsPerProcess][numProcs][problemSizeDimensions][Use_MPI_Shmem] [locality_aware] [<numCoresPerNode>] [<numNodes>] \n");
-    }    
-  if(rank == 0)
-    {
-      printf("Beginning computation. Using %d processes and %d threads per process \n", numprocs ,numthrds );
-      snprintf(perfTestsFileName, 127, "outFile%d_%d_%d_%d_%d_%d.dat",atoi(argv[3]), atoi(argv[4]), atoi(argv[1]), atoi(argv[2]), atoi(argv[9]), atoi(argv[5]) , atoi(argv[8]));
-      
-      perfTestOutput = fopen("outFilePerfTests.dat", "a+");
-      perfTestOutput_Temp = fopen(perfTestsFileName, "w");   
-      if(perfTestOutput != NULL)
-	{
-	  fprintf(perfTestOutput, "#\t%ld_%d_%d_%d_%d_%d_%d\n",
-		  atol(argv[3]), atoi(argv[4]), 
-		  atoi(argv[1]), atoi(argv[2]),
-		  atoi(argv[9]), atoi(argv[5]), 
-		  atoi(argv[8])  ); 
-	  
-	  fprintf(perfTestOutput_Temp, "#\t%ld_%d_%d_%d_%d_%d_%d\n",
-		  atol(argv[3]), atoi(argv[4]),  atoi(argv[1]),atoi(argv[2]),
-		  atoi(argv[9]), atoi(argv[5]),  atoi(argv[8]) );	  
-	}
-     
-      fclose(perfTestOutput);
-      fclose(perfTestOutput_Temp);
-    }
-  processesPerNode = numprocs/numNodes;      
-  rankWithinNode = rank%processesPerNode;    
-	
-	
-	  /* BEGIN MAIN EXPERIMENTATION  */ 
- for (trial = 0 ; trial < EXPERIMENT_ITERS; trial++)
-    {
-      startTime_Experiment = 0.0; 
-      endTime_Experiment = 0.0;
-      pthread_barrier_wait(&myBarrier);
-      startTime_Experiment = MPI_Wtime();   
-      runExperiment(i, myConfig);
-      threadTrialTime[trial][i] = MPI_Wtime() - startTime_Experiment; 
-      pthread_barrier_wait(&myBarrier);
-        
-      if (i == 0)
-	{
-	  endTime_Experiment = MPI_Wtime(); 
-	  trialTimes[trial] = endTime_Experiment - startTime_Experiment; 
-	  /* this is used for now, so that we can at least can max and min across all processes */
-	  maxThreadTrialTimes[trial] = endTime_Experiment - startTime_Experiment;
-	  minThreadTrialTimes[trial] = endTime_Experiment - startTime_Experiment;   
-	} 
-	pthread_barrier_wait(&myBarrier);
-    }
- if (i == 0)  endTime_Experiment = MPI_Wtime(); 
- 
- pthread_barrier_wait(&myBarrier);  
- 
- /*END MAIN EXPERIMENTATION */
-	
-	
-	
-	 MPI_Barrier(MPI_COMM_WORLD);   
-    if (rank == 0)  
-      {
-	printf ("HPC Tuner Framework: Done with computation.\n"); 
-	/* printResults();*/
-      }
-    nodeCleanUp();
-    pthread_barrier_destroy(&myBarrier);
-    /* CPU_FREE(cpuset);  */
-    
-    rcProc = MPI_Finalize();
-	
-}
 
 double* jacobi3D(int threadID); 
 void printMatrix(double* matrix, int id, int matDimX, int matDimY, int matDimZ);
@@ -737,4 +644,112 @@ double getRange(double* myArr, int size)
   double min = getMin(myArr, size);
   double max = getMax(myArr, size);
   return (max - min);
+}
+
+
+
+
+
+// function to use if compiling code standalone < --- hpctuner will take care of this in reality.
+int main(int argc, char** argv)
+	
+{
+  int rcProc;
+  long i;
+  void *status;
+  MPI_Init (&argc, &argv);
+  MPI_Comm_size (MPI_COMM_WORLD, &numprocs);
+  MPI_Comm_rank (MPI_COMM_WORLD, &rank);
+  numCores = NUM_CORES;
+  numNodes = NUM_NODES;
+  /*  cpu_set_t *cpuset; */
+  size_t size;
+	
+
+  if(argc >= 6 )
+    {
+      numthrds = atoi(argv[1]);
+      preProcessInput(argc, argv);      
+      numCores = atoi(argv[6]);
+      numNodes = atoi(argv[7]);
+      skipCoreCount = 0;
+    }
+  else
+    { 
+      if(rank == 0)
+	printf("Usage: mpirun -n [numthreadsPerProcess][numProcs][problemSizeDimensions][Use_MPI_Shmem] [locality_aware] [<numCoresPerNode>] [<numNodes>] \n");
+    } 
+  if(rank == 0)
+    {
+      printf("Beginning computation. Using %d processes and %d threads per process \n", numprocs ,numthrds );
+      snprintf(perfTestsFileName, 127, "outFile%d_%d_%d_%d_%d_%d.dat",atoi(argv[3]), atoi(argv[4]), atoi(argv[1]), atoi(argv[2]), atoi(argv[9]), atoi(argv[5]) , atoi(argv[8]));
+      
+      perfTestOutput = fopen("outFilePerfTests.dat", "a+");
+      perfTestOutput_Temp = fopen(perfTestsFileName, "w");   
+      if(perfTestOutput != NULL)
+	{
+	  fprintf(perfTestOutput, "#\t%ld_%d_%d_%d_%d_%d_%d\n",
+		  atol(argv[3]), atoi(argv[4]), 
+		  atoi(argv[1]), atoi(argv[2]),
+		  atoi(argv[9]), atoi(argv[5]), 
+		  atoi(argv[8])  ); 
+	  
+	  fprintf(perfTestOutput_Temp, "#\t%ld_%d_%d_%d_%d_%d_%d\n",
+		  atol(argv[3]), atoi(argv[4]),  atoi(argv[1]),atoi(argv[2]),
+		  atoi(argv[9]), atoi(argv[5]),  atoi(argv[8]) );	  
+	}
+     
+      fclose(perfTestOutput);
+      fclose(perfTestOutput_Temp);
+    }
+  processesPerNode = numprocs/numNodes;      
+  rankWithinNode = rank%processesPerNode;    
+	
+#pragma omp parallel
+{
+  int tid = omp_get_thread_num();
+  if(tid==0) startTime_init = MPI_Wtime();
+  initializeExperiment(i);
+  if(tid==0) endTime_init = MPI_Wtime();	
+	
+	  /* BEGIN MAIN EXPERIMENTATION  */ 
+ for (trial = 0 ; trial < EXPERIMENT_ITERS; trial++)
+    {
+      startTime_Experiment = 0.0; 
+      endTime_Experiment = 0.0;
+  #pragma omp barrier
+      startTime_Experiment = MPI_Wtime();
+      runExperiment(tid);
+      threadTrialTime[trial][tid] = MPI_Wtime() - startTime_Experiment; 
+
+      if (tid == 0)
+	{
+	  endTime_Experiment = MPI_Wtime(); 
+	  trialTimes[trial] = endTime_Experiment - startTime_Experiment; 
+	  /* this is used for now, so that we can at least can max and min across all processes */
+	  maxThreadTrialTimes[trial] = endTime_Experiment - startTime_Experiment;
+	  minThreadTrialTimes[trial] = endTime_Experiment - startTime_Experiment;   
+	} 
+	pthread_barrier_wait(&myBarrier);
+    }
+ if (tid == 0)  endTime_Experiment = MPI_Wtime(); 
+ 
+ pthread_barrier_wait(&myBarrier);  
+}
+// todo need to do timings for MPI 
+ /*END MAIN EXPERIMENTATION */
+	
+
+    MPI_Barrier(MPI_COMM_WORLD);   
+    if (rank == 0)  
+      {
+	printf ("HPC Tuner Framework: Done with computation.\n"); 
+	/* printResults();*/
+      }
+    nodeCleanUp();
+    pthread_barrier_destroy(&myBarrier);
+    /* CPU_FREE(cpuset);  */
+    
+    rcProc = MPI_Finalize();
+	
 }
