@@ -75,10 +75,8 @@ extern double getMin(double*, int, int);
 extern double getAvg(double*, int, int);  
 extern double getRange(double*, int, int);  
 
-
 void preProcessInput(int input_argc, char* input_argv[]);
 void initializeExperiment(int threadID, int p);
-
 
 /* application-specific to jacobi */ 
 double* u;
@@ -90,9 +88,10 @@ double* myRightBoundary;
 double* myLeftGhostCells;
 double* myRightGhostCells;
 
-
 double* jacobi3D(int threadID); 
 void printMatrix(double* matrix, int id, int matDimX, int matDimY, int matDimZ);
+void collectPerfStats();
+
 
 int runExperiment(int tid)
 {
@@ -104,8 +103,6 @@ int runExperiment(int tid)
 CORE algorithm:   this contains the core 3D stencil algorithm.  
 This decomposition can be specified through #define AA and AAA
 */
-
-
 
 double* jacobi3D(int threadID)
 {
@@ -125,7 +122,7 @@ double* jacobi3D(int threadID)
   int ghostSize;  
   int Y_size;
   double threadIdleBegin = 0.0;
-    
+	
   boundarySize = (Z-2)*(Y-2);
   ghostSize = (Z-2)*(Y-2);
   
@@ -238,8 +235,6 @@ double* jacobi3D(int threadID)
 	    }
 	}
 	  
-	 
-  
       threadIdleBegin = MPI_Wtime();
       pthread_barrier_wait(&myBarrier);
       if( threadID==0)
@@ -257,15 +252,15 @@ double* jacobi3D(int threadID)
       
       threadIdleTime[threadID] +=  (MPI_Wtime() - threadIdleBegin);
       double accumulatedWorkTime = 0.0;
-      
-  	  double tWorkBegin = MPI_Wtime(); 
-      
-	  
+      double tWorkBegin = MPI_Wtime(); 
 	  
 	  /*Note:  The variable sum is now mapped with tofrom, for correctexecution with 4.5 (and pre-4.5) compliant compilers. See Devices Intro.S-17*/
 	  
 	  // TODO: figure out how to separate gpu diff from node diff .
+	  // TODO: figure out how to make some number of threads (one per core of multi-core each control a GPU). 
 	  // TODO: tune num teams , thread limit , distschedule , chunk size
+	  
+	  // patition loop between CPU and GPUs 
  #pragma omp target map(to: u[0:(X*Y*Z)], v[0:(X*Y*Z)]) map(tofrom: gpudiff)
  #pragma omp teams num_teams(8) thread_limit(16) 
  #pragma omp distribute parallel for dist_schedule(static, 1024) schedule(static, 64) 
@@ -354,94 +349,7 @@ double* jacobi3D(int threadID)
   
   if( threadID ==0 && (rank == 0))
     printf("totalExection time on rank %d was  %f \n" ,rank, totalExecutionTime);
-  double dataCollectionTime, dataCollectionTime_start;  
-  if(threadID ==0)
-    dataCollectionTime_start = MPI_Wtime();
-  
-  /****** COLLECTION OF PERFORMANCE STATS AFTER  ALL ITERATIONS COMPLETED *********/  
-  double sumOverheadWorkTimes = 0.0; 
-  double sumAvgWorkTimes =0.0;
-  int numIterationsIncluded = 0;
-  int y = 3;
-  double x = 0.0;
-  double lock_time =0.0;
-  double barrier_time  = 0.0;
-  if((threadID == 0) &&  (rank ==0) && (DATA_COLLECTION) )
-    {
-      workTimeTotal = 0.0; 
-      for(i = 0 ;  i < JACOBI_ITERATIONS; i++)
-	{
-	  if(VERBOSE >= 3)
-	    {
-	      for(j = 0 ; j < numThreads; j++)
-		printf("%d(%f), ", workCounts[j][i], workTimes[j][i]*1000.0 );
-	      printf("\n");
-	    }
-	  double maxTime = 0.0;
-	  double minTime = 99999.0;
-	  double sumTime = 0.0;
-	  int maxWork = 0;
-	  int minWork = 999999;
-	  int sumWork = 0;
-	  for(j = 0; j < numThreads; j++)
-	    {
-	      if(VERBOSE >= 2)
-		printf("accumulating work times\n");
-	      maxTime = (maxTime < workTimes[j][i] ) ? (workTimes[j][i]): maxTime;
-	      minTime = (minTime > workTimes[j][i] ) ? (workTimes[j][i]): minTime;
-	      sumTime  += workTimes[j][i];
-	      maxWork = (maxWork < workCounts[j][i] ) ? (workCounts[j][i]): maxWork;
-	      minWork = (minWork > workCounts[j][i] ) ? (workCounts[j][i]): minWork;
-	      sumWork  += workCounts[j][i]; 	   
-	    }	
-	  double timeBalance = (maxTime - minTime)/(sumTime/(1.0*numThreads));
-	  double workBalance = ((double) (maxWork - minWork))/((1.0*sumWork)/(1.0*numThreads));
-	  workTimeTotal += sumTime;
-	  flops += 8*sumWork; 
-	  if( (timeBalance < 0.05 )  && (workBalance <  0.01)) 
-	    {    
-	      sumAvgWorkTimes += sumTime/(1.0*numThreads);
-	      numIterationsIncluded++;
-	    }
-	}
-      if(rank ==0){
-	double totalOverheads = 0.0;
-
-	for(i = 0; i< numThreads; i++)
-	  { 
-	    totalOverheads += totalOverhead[i];
-	    totalThreadIdleTime += threadIdleTime[i];
-	  }
-    
-  loadBalanceData  = fopen("jacobiLoadBalance.dat", "a+");   
-	if(!loadBalanceData)
-	  printf("error opening optional performanceStats loadBalanceData. Is it in the same folder as jacobiHybridSlabs3D.c? \n");
-	else
-	  fprintf(loadBalanceData, "\t%d\t%d\t%d\t%f\n", p, numThreads, numIterationsIncluded, sumAvgWorkTimes/(1.0*numIterationsIncluded));
-	fclose(loadBalanceData);
-      }
-    }
-  if(threadID == 0 && id == 0)
-    {
-      printf("STENCIL\t3D-VH-SLAB\t%d\t%d\t%d\t%d\t%d\t%d\t%f\t%f\t%f\t%f\t%d\n" ,
-	     X, Y,Z, p, numThreads,its, t_end - t_start, workTimeTotal, totalThreadIdleTime, communicationTime, numWorkSteal);
-      dataCollectionTime = MPI_Wtime() - dataCollectionTime_start;
-      printf("data Collection time = %f \t flops = %llu \t flops per second =  %llu \n",
-	     dataCollectionTime,
-	     flops,
-	     (unsigned long long) ( flops/ (numThreads*(t_end - t_start))  ));
-    }
-  
-  if(HISTOGRAM_GENERATION == 1)
-    {
-      if( (threadID == 0)  &&  (rank ==0) )
-	{
-	  printf("histogram for %d iterations for rank %d \n", its, rank);
-	  int i ; 
-	  for(i  = 0;  i <  61 ;  i++) // TODO: unhard code 61 - needs to be adjusted for how much granularity to see .
-	    printf( "\t%f\t%d\n" ,   i*0.25, histogram[i]);
-	}
-    }
+	
   pthread_barrier_wait(&myBarrier);
   return u; // only need this if we want display result. - also need a norm for correctness and a number for answer. 
 }
@@ -505,25 +413,6 @@ void initializeExperiment(int threadID, int p)
 	}
     }
   
-  /*  queueSize = jacobiNumTasklets; */
-  queueSize = Y; 
-  if (threadID ==0)
-    {
-      if(NUMQUEUES == 1)
-	{
-	  jacobiWorkQueue =  (JacobiTasklet**) malloc(sizeof(JacobiTasklet*)*queueSize); 
-	}
-      else
-	{
-	  for(i = 0 ;  i < NUMQUEUES; i++)
-	    {
-	      jacobiWorkQueues[i].jacobiWorkQueue =  (JacobiTasklet**) malloc(sizeof(JacobiTasklet*)*(queueSize/NUMQUEUES));
-	      (&jacobiWorkQueues[i])->curr = 0;
-	      pthread_mutex_init (&(jacobiWorkQueues[i].workQueueMutex), NULL);
-	    }
-	}
-      enqueueTasklets();
-    }
   pthread_barrier_wait(&myBarrier);
 }
 
@@ -601,12 +490,102 @@ void printResults()
 {
   /* application-specific */
   printf("MPI/pthreads jacobi results shown below  \n");
-  /*
+  
     if( (id == 0) || (id == 1) || (id == p-2) || (id == p -1)  ) 
     printMatrix(result, id, Z , Y, X);//prints horizontal slas  , with each slab separated by dashed lines 
-  */
 }
 
+
+void collectPerfStats()	
+{
+ double dataCollectionTime, dataCollectionTime_start;  
+  if(threadID ==0)
+    dataCollectionTime_start = MPI_Wtime();
+  
+  /****** COLLECTION OF PERFORMANCE STATS AFTER  ALL ITERATIONS COMPLETED *********/  
+  double sumOverheadWorkTimes = 0.0; 
+  double sumAvgWorkTimes =0.0;
+  int numIterationsIncluded = 0;
+  int y = 3;
+  double x = 0.0;
+  double lock_time =0.0;
+  double barrier_time  = 0.0;
+  if((threadID == 0) &&  (rank ==0) && (DATA_COLLECTION) )
+    {
+      workTimeTotal = 0.0; 
+      for(i = 0 ;  i < JACOBI_ITERATIONS; i++)
+	{
+	  if(VERBOSE >= 3)
+	    {
+	      for(j = 0 ; j < numThreads; j++)
+		printf("%d(%f), ", workCounts[j][i], workTimes[j][i]*1000.0 );
+	      printf("\n");
+	    }
+	  double maxTime = 0.0;
+	  double minTime = 99999.0;
+	  double sumTime = 0.0;
+	  int maxWork = 0;
+	  int minWork = 999999;
+	  int sumWork = 0;
+	  for(j = 0; j < numThreads; j++)
+	    {
+	      if(VERBOSE >= 2)
+		printf("accumulating work times\n");
+	      maxTime = (maxTime < workTimes[j][i] ) ? (workTimes[j][i]): maxTime;
+	      minTime = (minTime > workTimes[j][i] ) ? (workTimes[j][i]): minTime;
+	      sumTime  += workTimes[j][i];
+	      maxWork = (maxWork < workCounts[j][i] ) ? (workCounts[j][i]): maxWork;
+	      minWork = (minWork > workCounts[j][i] ) ? (workCounts[j][i]): minWork;
+	      sumWork  += workCounts[j][i]; 	   
+	  }
+	  double timeBalance = (maxTime - minTime)/(sumTime/(1.0*numThreads));
+	  double workBalance = ((double) (maxWork - minWork))/((1.0*sumWork)/(1.0*numThreads));
+	  workTimeTotal += sumTime;
+	  flops += 8*sumWork; 
+	  if( (timeBalance < 0.05 )  && (workBalance <  0.01)) 
+	    {    
+	      sumAvgWorkTimes += sumTime/(1.0*numThreads);
+	      numIterationsIncluded++;
+	    }
+	}
+      if(rank ==0){
+	double totalOverheads = 0.0;
+	for(i = 0; i< numThreads; i++)
+	  { 
+	    totalOverheads += totalOverhead[i];
+	    totalThreadIdleTime += threadIdleTime[i];
+	  } 
+	      
+       loadBalanceData  = fopen("jacobiLoadBalance.dat", "a+");   
+	if(!loadBalanceData)
+	  printf("error opening optional performanceStats loadBalanceData. Is it in the same folder as jacobiHybridSlabs3D.c? \n");
+	else
+	  fprintf(loadBalanceData, "\t%d\t%d\t%d\t%f\n", p, numThreads, numIterationsIncluded, sumAvgWorkTimes/(1.0*numIterationsIncluded));
+	fclose(loadBalanceData);
+      }
+    }
+  if(threadID == 0 && id == 0)
+    {
+      printf("STENCIL\t3D-VH-SLAB\t%d\t%d\t%d\t%d\t%d\t%d\t%f\t%f\t%f\t%f\t%d\n" ,
+	     X, Y,Z, p, numThreads,its, t_end - t_start, workTimeTotal, totalThreadIdleTime, communicationTime, numWorkSteal);
+      dataCollectionTime = MPI_Wtime() - dataCollectionTime_start;
+      printf("data Collection time = %f \t flops = %llu \t flops per second =  %llu \n",
+	     dataCollectionTime,
+	     flops,
+	     (unsigned long long) ( flops/ (numThreads*(t_end - t_start))  ));
+    }
+  
+  if(HISTOGRAM_GENERATION == 1)
+    {
+      if( (threadID == 0)  &&  (rank ==0) )
+	{
+	  printf("histogram for %d iterations for rank %d \n", its, rank);
+	  int i ; 
+	  for(i  = 0;  i <  61 ;  i++) // TODO: unhard code 61 - needs to be adjusted for how much granularity to see .
+	    printf( "\t%f\t%d\n" ,   i*0.25, histogram[i]);
+	}
+    }
+}
 
 
 double getAvg(double* myArr, int size)
@@ -753,3 +732,5 @@ int main(int argc, char** argv)
     rcProc = MPI_Finalize();
 	
 }
+
+
