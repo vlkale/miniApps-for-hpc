@@ -27,7 +27,6 @@
 #define DATA_COLLECTION 1
 #define HISTOGRAM_GENERATION 1
 
-
 #define JACOBI_ITERATIONS 1000
 
 // Domain Decompostion 
@@ -35,14 +34,29 @@
 #define A(i,j,k) ((j)*Z*X + (i)*Z + (k)) 
 #define AA(j,k) ((j)*Z + (k))
  
+
+#define NUM_CORES 16
+
+#define NUM_NODES 1024
+
+
+
 FILE* loadBalanceData;
 extern FILE* perfTuningData;
 
+extern FILE* perfTestsFileName;
+
+int rank; 
+int numprocs; 
+int processesPerNode;
+
+int skipCoreCount;
+
 int numThreads;
+int numthrds;
 int mySize;
 int Z = 64, Y = 512, X = 64;
 int Zdim, Ydim, Xdim;
-
 
 int p;
 int id ; 
@@ -53,7 +67,6 @@ int histogram[100];
 
 int mallocMode =1; /* 1: first touch is  handled , 0:  first touch is not handled */
 
-
 /* measurement and statistics info */
 int workCounts[MAX_THREADS][JACOBI_ITERATIONS]; 
 double workTimes[MAX_THREADS][JACOBI_ITERATIONS];
@@ -62,6 +75,7 @@ double totalOverhead[MAX_THREADS];
 double totalOverheads = 0.0;
 double workTimeTotal = -1.0;
 double totalThreadIdleTime = -1.0;
+double threadTrialTime[MAX_THREADS];
 double threadIdleTime[MAX_THREADS];
 
 double totalExecutionTime = 0.0;
@@ -70,10 +84,10 @@ unsigned long long flops;
 int curr; 
 
 /* utility functions */
-extern double getMax(double*, int, int);  
-extern double getMin(double*, int, int);  
-extern double getAvg(double*, int, int);  
-extern double getRange(double*, int, int);  
+extern double getMax(double*, int, int);
+extern double getMin(double*, int, int);
+extern double getAvg(double*, int, int);
+extern double getRange(double*, int, int);
 
 void preProcessInput(int input_argc, char* input_argv[]);
 void initializeExperiment(int threadID, int p);
@@ -92,12 +106,10 @@ double* jacobi3D(int threadID);
 void printMatrix(double* matrix, int id, int matDimX, int matDimY, int matDimZ);
 void collectPerfStats();
 
-
 int runExperiment(int tid)
 {
   jacobi3D(tid);
 }
-
 
 /*  
 CORE algorithm:   this contains the core 3D stencil algorithm.  
@@ -194,13 +206,10 @@ double* jacobi3D(int threadID)
 		  int numRequests = 0;
 		  if( id > 0 ) 
 		    MPI_Irecv(myLeftGhostCells, ghostSize, MPI_DOUBLE, id - 1, 0 , MPI_COMM_WORLD, &requests[numRequests++]);
-		  
 		  if(id < p-1)
 		    MPI_Irecv(myRightGhostCells, ghostSize, MPI_DOUBLE, id + 1, 0 , MPI_COMM_WORLD, &requests[numRequests++]);
-		  
 		  if (id > 0)
-		    MPI_Isend(myLeftBoundary, boundarySize, MPI_DOUBLE, id-1, 0, MPI_COMM_WORLD, &requests[numRequests++]);
-		  
+		    MPI_Isend(myLeftBoundary, boundarySize, MPI_DOUBLE, id-1, 0, MPI_COMM_WORLD, &requests[numRequests++]);		  
 		  if (id < p - 1 ) 
 		    MPI_Isend(myRightBoundary, boundarySize, MPI_DOUBLE, id+1, 0, MPI_COMM_WORLD, &requests[numRequests++]); 		  
 		  MPI_Waitall(numRequests, requests, MPI_STATUSES_IGNORE);
@@ -412,7 +421,6 @@ void initializeExperiment(int threadID, int p)
 	      }
 	}
     }
-  
   pthread_barrier_wait(&myBarrier);
 }
 
@@ -429,14 +437,14 @@ void preProcessInput(int input_argc, char* input_argv[])
       MPI_Finalize();
     }
   numThreads = atoi(input_argv[1]);  
-  NUMQUEUES = atoi(input_argv[4]);
+  // NUMQUEUES = atoi(input_argv[4]);
   Xdim = atoi(input_argv[8]); 
   Ydim = atoi(input_argv[9]); 
   Zdim = atoi(input_argv[10]);   
-  locality_aware = atoi(input_argv[5]);
-  jacobiNumTasklets  = atoi(input_argv[3]);    
+  // locality_aware = atoi(input_argv[5]);
+  // jacobiNumTasklets  = atoi(input_argv[3]);    
   if(rank ==0)
-    printf("numthreads = %d , NUMQUEUES = %d,   Xdim = %d , Ydim = %d , Zdim = %d  \n", numThreads,NUMQUEUES,  Xdim ,  Ydim, Zdim);
+    printf("numthreads = %d ,   Xdim = %d , Ydim = %d , Zdim = %d  \n", numThreads,  Xdim ,  Ydim, Zdim);
   
   if (Xdim%numprocs !=0) /* application-specific */
     {
@@ -450,18 +458,17 @@ void preProcessInput(int input_argc, char* input_argv[])
     }
   /*  application-specific partitioning */
   Y =  (Ydim + 2);  
-  Y_dynamic = atoi(input_argv[2]); 
-  Y_static = (int) (Ydim - Y_dynamic); 
-  dynamic_ratio = (1.0*Y_dynamic)/(1.0*Ydim);  
+  //  Y_dynamic = atoi(input_argv[2]); 
+  // Y_static = (int) (Ydim - Y_dynamic); 
+  // dynamic_ratio = (1.0*Y_dynamic)/(1.0*Ydim);  
   Z = Zdim + 2;
   X = (Xdim/numprocs) + 2; 
 
   /* initialize thread mutices */ 
-  pthread_mutex_init (&mutexdiff, NULL);  
-  pthread_mutex_init (&workQueueMutex, NULL); 
+  pthread_mutex_init (&mutexdiff, NULL);
 }
 
-int experimentCleanUp()
+void experimentCleanUp()
 {
   return;
   if(rank ==0)
@@ -478,12 +485,6 @@ int experimentCleanUp()
 void nodeCleanUp()
 {
   pthread_mutex_destroy(&mutexdiff);
-  pthread_mutex_destroy(&workQueueMutex);
-  pthread_mutex_destroy(&workQueueMutex1);
-  pthread_mutex_destroy(&workQueueMutex2);
-  int i ; 
-  for (i = 0;  i < NUMQUEUES; i++)
-    pthread_mutex_destroy(&(jacobiWorkQueues[i].workQueueMutex));
 }
 
 void printResults()
@@ -495,14 +496,14 @@ void printResults()
     printMatrix(result, id, Z , Y, X);//prints horizontal slas  , with each slab separated by dashed lines 
 }
 
-
-void collectPerfStats()	
+/*
+void collectPerfStats(int threadID, int its)	
 {
  double dataCollectionTime, dataCollectionTime_start;  
   if(threadID ==0)
     dataCollectionTime_start = MPI_Wtime();
   
-  /****** COLLECTION OF PERFORMANCE STATS AFTER  ALL ITERATIONS COMPLETED *********/  
+  // COLLECTION OF PERFORMANCE STATS AFTER  ALL ITERATIONS COMPLETED 
   double sumOverheadWorkTimes = 0.0; 
   double sumAvgWorkTimes =0.0;
   int numIterationsIncluded = 0;
@@ -513,11 +514,11 @@ void collectPerfStats()
   if((threadID == 0) &&  (rank ==0) && (DATA_COLLECTION) )
     {
       workTimeTotal = 0.0; 
-      for(i = 0 ;  i < JACOBI_ITERATIONS; i++)
+      for(int i = 0 ;  i < JACOBI_ITERATIONS; i++)
 	{
 	  if(VERBOSE >= 3)
 	    {
-	      for(j = 0 ; j < numThreads; j++)
+	      for(int j = 0 ; j < numThreads; j++)
 		printf("%d(%f), ", workCounts[j][i], workTimes[j][i]*1000.0 );
 	      printf("\n");
 	    }
@@ -527,7 +528,7 @@ void collectPerfStats()
 	  int maxWork = 0;
 	  int minWork = 999999;
 	  int sumWork = 0;
-	  for(j = 0; j < numThreads; j++)
+	  for(int j = 0; j < numThreads; j++)
 	    {
 	      if(VERBOSE >= 2)
 		printf("accumulating work times\n");
@@ -550,13 +551,12 @@ void collectPerfStats()
 	}
       if(rank ==0){
 	double totalOverheads = 0.0;
-	for(i = 0; i< numThreads; i++)
+	for(int i = 0; i< numThreads; i++)
 	  { 
 	    totalOverheads += totalOverhead[i];
 	    totalThreadIdleTime += threadIdleTime[i];
 	  } 
-	      
-       loadBalanceData  = fopen("jacobiLoadBalance.dat", "a+");   
+       loadBalanceData = fopen("jacobiLoadBalance.dat", "a+");   
 	if(!loadBalanceData)
 	  printf("error opening optional performanceStats loadBalanceData. Is it in the same folder as jacobiHybridSlabs3D.c? \n");
 	else
@@ -567,7 +567,7 @@ void collectPerfStats()
   if(threadID == 0 && id == 0)
     {
       printf("STENCIL\t3D-VH-SLAB\t%d\t%d\t%d\t%d\t%d\t%d\t%f\t%f\t%f\t%f\t%d\n" ,
-	     X, Y,Z, p, numThreads,its, t_end - t_start, workTimeTotal, totalThreadIdleTime, communicationTime, numWorkSteal);
+	     X, Y, Z, p, numThreads,its, t_end - t_start, workTimeTotal, totalThreadIdleTime, communicationTime, numWorkSteal);
       dataCollectionTime = MPI_Wtime() - dataCollectionTime_start;
       printf("data Collection time = %f \t flops = %llu \t flops per second =  %llu \n",
 	     dataCollectionTime,
@@ -587,6 +587,8 @@ void collectPerfStats()
     }
 }
 
+*/
+
 
 double getAvg(double* myArr, int size)
 {
@@ -598,6 +600,7 @@ double getAvg(double* myArr, int size)
   average = currSum/(size*1.0); 
   return average;
 }
+
 double  getMax( double* myArr, int size     )
 {
   int iter;
@@ -630,8 +633,7 @@ double getRange(double* myArr, int size)
 
 
 // function to use if compiling code standalone < --- hpctuner will take care of this in reality.
-int main(int argc, char** argv)
-	
+int main(int argc, char** argv)	
 {
   int rcProc;
   long i;
@@ -639,12 +641,11 @@ int main(int argc, char** argv)
   MPI_Init (&argc, &argv);
   MPI_Comm_size (MPI_COMM_WORLD, &numprocs);
   MPI_Comm_rank (MPI_COMM_WORLD, &rank);
-  numCores = NUM_CORES;
-  numNodes = NUM_NODES;
+  int numCores = NUM_CORES;
+  int numNodes = NUM_NODES;
   /*  cpu_set_t *cpuset; */
   size_t size;
 	
-
   if(argc >= 6 )
     {
       numthrds = atoi(argv[1]);
@@ -661,8 +662,9 @@ int main(int argc, char** argv)
   if(rank == 0)
     {
       printf("Beginning computation. Using %d processes and %d threads per process \n", numprocs ,numthrds );
-      snprintf(perfTestsFileName, 127, "outFile%d_%d_%d_%d_%d_%d.dat",atoi(argv[3]), atoi(argv[4]), atoi(argv[1]), atoi(argv[2]), atoi(argv[9]), atoi(argv[5]) , atoi(argv[8]));
-      
+      // snprintf(perfTestsFileName, 127, "outFile%d_%d_%d_%d_%d_%d.dat",atoi(argv[3]), atoi(argv[4]), atoi(argv[1]), atoi(argv[2]), atoi(argv[9]), atoi(argv[5]) , atoi(argv[8]));
+   
+      /*   
       perfTestOutput = fopen("outFilePerfTests.dat", "a+");
       perfTestOutput_Temp = fopen(perfTestsFileName, "w");   
       if(perfTestOutput != NULL)
@@ -680,16 +682,19 @@ int main(int argc, char** argv)
      
       fclose(perfTestOutput);
       fclose(perfTestOutput_Temp);
+      */
     }
   processesPerNode = numprocs/numNodes;      
-  rankWithinNode = rank%processesPerNode;    
-	
+
+  int processesPerNode = 4; 
+  int rankWithinNode = rank%processesPerNode;
+
 #pragma omp parallel
 {
   int tid = omp_get_thread_num();
   if(tid==0) startTime_init = MPI_Wtime();
   initializeExperiment(i);
-  if(tid==0) endTime_init = MPI_Wtime();	
+  if(tid==0) endTime_init = MPI_Wtime();
 	
 	  /* BEGIN MAIN EXPERIMENTATION  */ 
  for (trial = 0 ; trial < EXPERIMENT_ITERS; trial++)
