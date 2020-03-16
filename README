@@ -27,3 +27,11 @@ E. Experimentation:
  a. One can adjust the input matrix for the 2D mesh example in stencil.f by modifying line [207], where the initial values of the matrix are set to 50.0. The domain decomposition o the mesh is specified at line 243, where the decomposition is set to row domain decomposition.
 
  b. One can adjust tasklet size parameter of over-decomposition library by setting the TASKLET_SIZE environment variable to be equal to the size of the tasklet.
+
+
+# Notes on Compiling and Running 
+
+
+1. For macs, one can download llvm and mpich and use the following to run: 
+
+   mpicxx -Xclang -openmp -pthread -L/usr/local/opt/llvm/lib -I/usr/local/opt/llvm/include -ferror-limit=50 -lomp stencil.C
