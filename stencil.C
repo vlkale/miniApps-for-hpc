@@ -4,7 +4,7 @@
 *  The kernel is based on Quinn et al.
 *
 *  
-*  Last Revised: 2/25/2020  Vivek Kale 
+*  Last Revised: 3/16/2020  Vivek Kale 
 *  Brookhaven National Laboratory / Stony Brook University
 *************************************************************/
 
@@ -22,30 +22,31 @@
 using namespace std;
 
 #define MAX_THREADS 16
-#define VERBOSE 0
 #define EPSILON .0000001
 
-
-#define BLOCKING_MPI 0
-
 #define USE_HYBRID_MPI 1
-#define DATA_COLLECTION 1
-#define HISTOGRAM_GENERATION 1
+#define BLOCKING_MPI 0
+int POINTER_SWAP=1; // swap pointers of arrays instead of cell copy of arrays (set to 0 for the that)
 
-#define NUM_TRIALS 3
+
 #define JACOBI_ITERATIONS 5
 
 // Domain Decompostion 
-/* #define A(i,j,k) ((i)*Z*Y + (j)*Z + (k)) */
+
+/* #define A(i,j,k) ((i)*Z*Y + (j)*Z + (k)) */ 
+// the following is a slab decomposition 
 #define A(i,j,k) ((j)*Z*X + (i)*Z + (k)) 
 #define AA(j,k) ((j)*Z + (k))
  
-
 #define NUM_CORES 16
 #define NUM_NODES 1024
 
+
+// Experimental methodology and data collection. 
+#define NUM_TRIALS 3
 #define HISTOGRAM_NUM_BINS 100
-int POINTER_SWAP=1; // swap pointers of arrays instead of cell copy of arrays (set to 0 for the that)
+#define DATA_COLLECTION 1
+#define HISTOGRAM_GENERATION 1
 FILE* loadBalanceData;
 extern FILE* perfTuningData;
 extern FILE* perfTestsFileName;
@@ -58,23 +59,55 @@ int skipCoreCount;
 int numThreads;
 int numthrds;
 int mySize;
-int Z = 1, Y = 1, X = 1; // default dimensions 
-int numTimesteps = 0; 
-int Zdim, Ydim, Xdim;
+
 
 int numBins = HISTOGRAM_NUM_BINS;
+
+
+// TODO: add RAJA 
+
+
+// Need to create library for fortran 
+/* --Library for scheduling strategy and variables and macros associated with the library -- */
+//#include "vSched.h"
+double constraint;
+double fs;
+// in the below macros, strat is how we specify the library
+#define FORALL_BEGIN(strat, s,e, start, end, tid, numThds )  loop_start_ ## strat (s,e ,&start, &end, tid, numThds);  do {
+#define FORALL_END(strat, start, end, tid)  } while( loop_next_ ## strat (&start, &end, tid));
+
+
+/* -- Debugging -- */
+#define VERBOSE 1
+
+/* --  Performance Measurement -- */
+double totalTime = 0.0;
+FILE* myfile;// output file for experimental data
+
+/* --  Hardware Profiling -- */
+// #define USE_PAPI 
+ #ifdef USE_PAPI
+ #include <papi.h>  // Comment these lines on PAPI out to make fully portable. Some platforms don't have the L2 and L3 cache misses available. TODO: need a way to check the counters in config or programmatically. 
+#endif
 
 int p;
 int id ; 
 pthread_mutex_t mutexdiff;
 // extern pthread_barrier_t myBarrier; 
+/* profiling */
 
 double trialTimes[NUM_TRIALS];
 double minThreadTrialTimes[NUM_TRIALS];
 double maxThreadTrialTimes[NUM_TRIALS];
 int numTrials = 1;
 
-int histogram[HISTOGRAM_NUM_BINS]; // for performance visualization of distribution of iteration timings 
+int histogram[HISTOGRAM_NUM_BINS]; // for performance visualization of distribution of iteration timings
+
+// #define PAPI_PROFILING
+// Library for hardware profiling.
+#ifdef PAPI_PROFILING
+#include <papi.h>
+#endif
 
 int mallocMode =1; /* 1: first touch is  handled , 0:  first touch is not handled */
 
@@ -102,31 +135,43 @@ extern double getMin(double*, int, int);
 extern double getAvg(double*, int, int);
 extern double getRange(double*, int, int);
 
+
+/* experimental framework */ 
 void preProcessInput(int input_argc, char** input_argv);
 void initializeExperiment(int threadID, int p);
 
+void printMatrix(double* matrix, int id, int matDimX, int matDimY, int matDimZ);
+void collectPerfStats();
+
+double* runExperiment(int tid, double* result);
+
+
 /* application-specific to jacobi */ 
+#define X_dim 16
+#define Y_dim 64
+#define Z_dim 16
+
+int Z = 1, Y = 1, X = 1; // default dimensions 
+int numTimesteps = 0; 
+int Zdim, Ydim, Xdim;
+
 double* u;
 double* w; // global - gets updated on each jacobi iteration. 
 double* result;
 
+ int boundarySize = (Z-2)*(Y-2);
+int ghostSize = (Z-2)*(Y-2);
+
+double myLeftBoundary[(X_dim-2)*(Y_dim-2)];
+double myRightBoundary[(X_dim -2)*(Y_dim -2)];
+double myLeftGhostCells[(Z_dim -2)*(Y_dim - 2)]; 
+double myRightGhostCells[(Z_dim -2)*(Y_dim -2)];
+
+double* jacobi3D(int, double*);
 
 
-double* myLeftBoundary;
-double* myRightBoundary;
-double* myLeftGhostCells;
-double* myRightGhostCells;
 
-int boundarySize;
-int ghostSize;  
-
-double* jacobi3D(int, double*); 
-
-void printMatrix(double* matrix, int id, int matDimX, int matDimY, int matDimZ);
-
-void collectPerfStats();
-
-double* runExperiment(int tid, double* result)// todo: really ought to change this to a void for generic type
+double* runExperiment(int tid, double* result) // todo: really ought to change this to a void for generic type
 {
   return jacobi3D(tid, result);
 }
@@ -135,6 +180,7 @@ double* runExperiment(int tid, double* result)// todo: really ought to change th
 CORE algorithm:   this contains the core 3D stencil algorithm.  
 This decomposition can be specified through #define AA and AAA
 */
+
 
 double* jacobi3D(int threadID, double* resultMatrix)
 {
@@ -150,11 +196,9 @@ double* jacobi3D(int threadID, double* resultMatrix)
   int its =0;
   double tdiff, t_start, t_end;
   double tickTime;  
-
   int Y_size;
   double threadIdleBegin = 0.0;
 
-  
 #pragma omp master 
   //  cout << "completed initializing ghost cells" << endl;
   
@@ -184,13 +228,18 @@ double* jacobi3D(int threadID, double* resultMatrix)
     }
 
   while (1)
-    {      
+    {
+      //#pragma omp master
+      // MPI_Barrier(MPI_COMM_WORLD);
+      // #pragma omp barrier 
       if(USE_HYBRID_MPI || (numprocs > 1))
 	{ 
  /*  num Processes should be greater than zero */
     #pragma omp master 
-	    {
+	    { 
 	      /* goto BARRIER; */
+	      MPI_Barrier(MPI_COMM_WORLD);
+	      printf("Rank %d starting communication in timestep %d \n", id, its);
 	      communicationTimeBegin =  MPI_Wtime();         
 	      for (i = 1; i<  X -1 ; i++)
 		for (j = 1; j < Y -1; j++)
@@ -203,17 +252,14 @@ double* jacobi3D(int threadID, double* resultMatrix)
 		{
 		  int numRequests = 0;
 		  if( id > 0 ) 
-		    MPI_Irecv(myLeftGhostCells, ghostSize, MPI_DOUBLE, id - 1, 0 , MPI_COMM_WORLD, &requests[numRequests++]);
+		    MPI_Irecv(&myLeftGhostCells, ghostSize, MPI_FLOAT, id - 1, 0 , MPI_COMM_WORLD, &requests[numRequests++]);
 		  if(id < p-1)
-		    MPI_Irecv(myRightGhostCells, ghostSize, MPI_DOUBLE, id + 1, 0 , MPI_COMM_WORLD, &requests[numRequests++]);
+		    MPI_Irecv(&myRightGhostCells, ghostSize, MPI_FLOAT, id + 1, 0 , MPI_COMM_WORLD, &requests[numRequests++]);
 		  if (id > 0)
-		    MPI_Isend(myLeftBoundary, boundarySize, MPI_DOUBLE, id-1, 0, MPI_COMM_WORLD, &requests[numRequests++]);		  
+		    MPI_Isend(&myLeftBoundary, boundarySize, MPI_FLOAT, id-1, 0, MPI_COMM_WORLD, &requests[numRequests++]);		  
 		  if (id < p - 1 ) 
-		    MPI_Isend(myRightBoundary, boundarySize, MPI_DOUBLE, id+1, 0, MPI_COMM_WORLD, &requests[numRequests++]); 		  
-		  
-		  // printf("procID %d sending left boundary with size = %d \n" , id, boundarySize);
+		    MPI_Isend(&myRightBoundary, boundarySize, MPI_FLOAT, id+1, 0, MPI_COMM_WORLD, &requests[numRequests++]);
 		  MPI_Waitall(numRequests, requests, MPI_STATUSES_IGNORE);
-		  // printf("finished Waitall . procID %d \t numRquests = %d \n" , id, numRequests);
 		}
 	      else
 		{
@@ -246,12 +292,12 @@ double* jacobi3D(int threadID, double* resultMatrix)
       threadIdleBegin = MPI_Wtime();
 #pragma omp barrier 
 
-#pragma omp master 
-      {
-	communicationTimeEnd = MPI_Wtime();
-	communicationTime += (communicationTimeEnd - communicationTimeBegin);
+      // #pragma omp master 
+      // {
+      ///	communicationTimeEnd = omp();
+      //	communicationTime += (communicationTimeEnd - communicationTimeBegin);
 	// cout << "time spent in communication " << communicationTime << endl;
-      }
+      //      }
       tdiff = 0.0; 
       // partitioning of slabs to threads. 
       startj = 1 + (Y/numThreads)*threadID;
@@ -260,42 +306,20 @@ double* jacobi3D(int threadID, double* resultMatrix)
       int workCount = 0;
       // TODO: Add PAPI here for collecting cache misses 
       
-      threadIdleTime[threadID] +=  (omp_get_wtime() - threadIdleBegin);
+      //       threadIdleTime[threadID] +=  (omp_get_wtime() - threadIdleBegin);
       double accumulatedWorkTime = 0.0;
-      double tWorkBegin = omp_get_wtime();  
-	  /* Note:  The variable sum is now mapped with tofrom, for correctexecution with 4.5 (and pre-4.5) compliant compilers. See Devices Intro.S-17*/
-	  
+      double tWorkBegin = omp_get_wtime();  	  
 	  // TODO: figure out how to separate gpu diff from node diff .
 	  // TODO: figure out how to make some number of threads (one per core of multi-core each control a GPU). 
-	  // TODO: tune num teams , thread limit , distschedule , chunk size
-	  
+	  // TODO: tune num teams , thread limit , distschedule , chunk size 	  
 	  // patition loop between CPU and GPUs 
-      // map(tofrom: gpudiff)
+      // map(tofrom: gpudiff) 
 
-      /*
-	#pragma omp target map(to: u[0:(X*Y*Z)], v[0:(X*Y*Z)]) 
-	#pragma omp teams num_teams(8) thread_limit(16) 
-	#pragma omp distribute parallel for dist_schedule(static, 1024) schedule(static, 64) 
-	
-	for(j = startj ; j < endj ; j++)
-	{
-	      for(i = 1; i < X-1; i++)
-	      {
-	      for (k = 1; k < Z - 1; k++) 
-	      printf("%d \n", &(w[A(i, j, k)])); 
-	      w[A(i,j,k)] = ( 
-	      u[A(i-1,j,k)]+ u[A(i+1,j,k)] 
-	      + u[A(i,j-1,k)] + u[A(i, j+1, k)]+
-	      + u[A(i, j, k-1)] + u[A(i,j, k+1)]
-	      + u[A(i, j, k)]    
-	      )*coeff;
-	      }
-	      }
-	      workCount += (endj - startj)*(X-2)*(Z-2); 
-	      // gather dequeue overheads from using dynamic scheduling. 
-	      
-	      */
-      
+	  /* Note:  The variable sum is now mapped with tofrom, for correctexecution with 4.5 (and pre-4.5) compliant compilers. See Devices Intro.S-17*/ 
+      //	#pragma omp target map(to: u[0:(X*Y*Z)], v[0:(X*Y*Z)]) 
+      //	#pragma omp teams num_teams(8) thread_limit(16) 
+      //	#pragma omp distribute parallel for dist_schedule(static, 1024) schedule(static, 64) 
+
 #pragma omp for schedule (guided, 4) // can use user-defined schedules here. 
       for(j = startj ; j < endj ; j++)
 	{
@@ -540,9 +564,7 @@ void initializeExperiment(int threadID, int p)
    // Y_static = (int) (Ydim - Y_dynamic); 
 //   // dynamic_ratio = (1.0*Y_dynamic)/(1.0*Ydim);  
    Z = Zdim + 2;
-   X = (Xdim/numprocs) + 2; 
-
-  
+   X = (Xdim/numprocs) + 2;
 
 //   /* initialize thread mutices for diffs */ 
    pthread_mutex_init (&mutexdiff, NULL);
@@ -556,10 +578,10 @@ void initializeExperiment(int threadID, int p)
      cout << "cleaning up experiment" << endl;
    free(u);
    free(w);
-   free(myLeftBoundary);
-   free(myRightBoundary);
-   free(myLeftGhostCells );
-   free(myRightGhostCells);
+   //   free(myLeftBoundary);
+   //free(myRightBoundary);
+   //free(myLeftGhostCells );
+   //free(myRightGhostCells);
    if (procID == 0)
      cout << " ended experiment cleanup." << endl;
  }
@@ -808,23 +830,36 @@ int main(int argc, char** argv)
   resultMatrix = (double*) malloc(sizeof(double)*dataSize); 
   u = (double*) malloc(sizeof(double)*dataSize); 
   w = (double*) malloc(sizeof(double)*dataSize);
-  boundarySize = (Z-2)*(Y-2);
-  ghostSize = (Z-2)*(Y-2);
-  myLeftBoundary = (double*) malloc(boundarySize*sizeof(double));                                                       
-  myRightBoundary = (double*) malloc(boundarySize*sizeof(double));                                                                  
-  myLeftGhostCells = (double*) malloc(ghostSize*sizeof(double));    
-  myRightGhostCells = (double*) malloc(ghostSize*sizeof(double));
+  //boundarySize = (Z-2)*(Y-2);
+  //ghostSize = (Z-2)*(Y-2);
+  //  myLeftBoundary = (double*) malloc(boundarySize*sizeof(double));                                                       
+  //myRightBoundary = (double*) malloc(boundarySize*sizeof(double));                                                                  
+  //myLeftGhostCells = (double*) malloc(ghostSize*sizeof(double));    
+  // myRightGhostCells = (double*) malloc(ghostSize*sizeof(double));
 
-#pragma omp parallel
-{
-  int tid = omp_get_thread_num();
+
+
  for (int trial = 0 ; trial < numTrials; trial++)
     {
+      cout << "starting trial " << trial << endl; 
+
+
+#pragma omp parallel 
+      {
+	int tid = omp_get_thread_num();
 #pragma omp master 
-      startTime_Init = omp_get_wtime();
-      initializeExperiment(tid, numprocs);
+	startTime_Init = omp_get_wtime();
+	initializeExperiment(tid, numprocs);
 #pragma omp master
-      endTime_Init = omp_get_wtime();
+	endTime_Init = omp_get_wtime();
+      }
+
+
+      MPI_Barrier(MPI_COMM_WORLD);
+#pragma omp parallel
+      {
+	
+	int tid = omp_get_thread_num();
       
       /* BEGIN MAIN EXPERIMENTATION  */ 
       
@@ -836,13 +871,8 @@ int main(int argc, char** argv)
       // resMat =
       runExperiment(tid, resultMatrix);
 
-#pragma omp master
-      if(procID == 0)
-	{
-	  cout << "finished running experiment" << endl; 
-	} 
-      threadTrialTime[trial][tid] = omp_get_wtime() - startTime_Experiment; 
-      printf( " threadTrialTime[%d][%d] = %f\n", trial, tid, threadTrialTime[trial][tid]);
+      //      threadTrialTime[trial][tid] = omp_get_wtime() - startTime_Experiment; 
+      // printf( " threadTrialTime[%d][%d] = %f\n", trial, tid, threadTrialTime[trial][tid]);
       
       /*
 #pragma omp master
@@ -856,8 +886,7 @@ int main(int argc, char** argv)
       }
       cout << "Thread " << omp_get_thread_num() << " finished experiment in " << threadTrialTime[trial][tid] << " seconds." << endl;
       */
-   
- 
+
  // printResults(resultMatrix, procID);
  #ifdef SHOWOUTPUT
  printResults(resMat, procID);
@@ -866,21 +895,25 @@ int main(int argc, char** argv)
  printPerfViz(procID); 
 #endif 
 
-#pragma omp master
-     {
-       endTime_Experiment = omp_get_wtime();
-       cout << "Time for experiment's trial = " << endTime_Experiment - startTime_Experiment << endl;
-
-     }
+ #pragma omp master
+    {
+    endTime_Experiment = omp_get_wtime();
+     cout << "Time for experiment's trial = " << endTime_Experiment - startTime_Experiment << endl;
+   }
    
-    } // end for loop for trial of experiment
- }// end omp parallel 
+    } // end omp parallel 
+ 
+ experimentCleanUp();
+
+MPI_Barrier(MPI_COMM_WORLD);
+
+ }// end for loop for trial of experiment
 
 // TODO: need to do timings for MPI 
 
 //  END MAIN EXPERIMENTATION	
 
- experimentCleanUp();
+
 
     /* CPU_FREE(cpuset);  */
  nodeCleanUp(); 

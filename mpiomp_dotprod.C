@@ -20,17 +20,18 @@
 /* Define length of dot product vectors and number of OpenMP threads */
 #define VECLEN 100
 #define NUMTHREADS 8
+#define NUM_TIMESTEPS 100
 
 int main (int argc, char* argv[])
 {
-  int i, myid, tid, numprocs, len=VECLEN, threads=NUMTHREADS;
+  int i, myid, tid, numprocs, len=VECLEN, threads=NUMTHREADS, timesteps = NUM_TIMESTEPS;
   double *a, *b;
   double mysum, allsum, sum, psum;
 
   /* MPI Initialization */
   MPI_Init (&argc, &argv);
   MPI_Comm_size (MPI_COMM_WORLD, &numprocs);
-  MPI_Comm_rank (MPI_COMM_WORLD, &myid);
+  MPI_Comm_rank (MPI_COMM_WORLD, &myid); 
 
   /* 
    Each MPI task uses OpenMP to perform the dot product, obtains its partial sum, 
@@ -38,13 +39,28 @@ int main (int argc, char* argv[])
   */
   if (myid == 0)
     printf("Starting omp_dotprod_hybrid. Using %d tasks...\n",numprocs);
+  
+  if(argc >= 2)
+    {
+      threads =  atoi(argv[1]);
+    }
+  if(argc >= 3)
+    {
+      threads =  atoi(argv[1]);
+      len  =  atoi(argv[2]);
+    }
+  if(argc >= 4)
+    {
+      timesteps  =  atoi(argv[3]);
+    }
 
   /* Assign storage for dot product vectors */
   a = (double*) malloc (len*threads*sizeof(double));
   b = (double*) malloc (len*threads*sizeof(double));
  
   /* Initialize dot product vectors */
-  for (i=0; i<len*threads; i++) {
+  for (i=0; i<len*threads; i++) 
+  {
     a[i]=1.0;
     b[i]=a[i];
   }
@@ -78,7 +94,6 @@ int main (int argc, char* argv[])
       }
     printf("Task %d thread %d partial sum = %f\n",myid, tid, psum);
   }
-
 
   /* Print this task's partial sum */
   mysum = sum;

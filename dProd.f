@@ -20,8 +20,6 @@
       include 'mpif.h'
       ! include 'openaccf.h'
 
-
-
       integer ( kind = 4 ) rank
       integer ( kind = 4 ) size
       integer ( kind = 4 ) ierror

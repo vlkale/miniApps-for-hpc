@@ -41,7 +41,6 @@ __global__ void mult( int *a, int *b, int *c ) {
 }
 
 
-
 int main (int argc, char* argv[] )
 {
   // Size of vectors 
@@ -89,7 +88,6 @@ int main (int argc, char* argv[] )
   acc_set_device_num(dev_id,acc_device_nvidia); // assign GPU to one MPI process
   cout << "MPI process " << myrank << "  is assigned to GPU " << dev_id << "\n";
 #elif CUDA
-
 
 #endif
   // Initialize the content of input vectors, where vector a[i] = sin(i)^2 and vector b[i] = cos(i)^2
