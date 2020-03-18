@@ -52,7 +52,8 @@ FILE* perfTuningData;
 
 FILE* perfTestOutput;
 FILE* perfTestOutput_Temp;
-char* perfTestsFileName;
+//char* perfTestsFileName[127];
+char perfTestsFileName[127];
 
 int procID; 
 int numprocs; 
@@ -81,7 +82,7 @@ double fs;
 
 
 /* -- Debugging -- */
-#define VERBOSE 1
+//#define VERBOSE 0
 
 /* --  Performance Measurement -- */
 double totalTime = 0.0;
@@ -337,7 +338,9 @@ double* jacobi3D(int threadID, double* resultMatrix)
 	if ( /* (global_diff <= EPSILON) */ (its >= numTimesteps) )
 	  { 	
 	    // #pragma omp master
+	    #ifdef VERBOSE
 	    printf("converged or completed max jacobi iterations.\n");
+	    #endif 
 	    break;
 	  } 
 	else 
@@ -529,16 +532,21 @@ void initializeExperiment(int threadID, int p)
  {
    // TODO: This can cause problems on some machines. Uncomment below if it does
    // return;
-   if(procID ==0)
-     cout << "cleaning up experiment" << endl;
-     free(u);
-    free(w);
-    //free(myLeftBoundary);
-    // free(myRightBoundary);
-   // free(myLeftGhostCells );
-   // free(myRightGhostCells);
+   #ifdef VERBOSE 
+  if(procID ==0)
+    cout << "cleaning up experiment" << endl;
+#endif 
+   free(u);
+   free(w);
+   free(myLeftBoundary);
+   free(myRightBoundary);
+   free(myLeftGhostCells );
+   free(myRightGhostCells);
+   #ifdef VERBOSE
    if (procID == 0)
      cout << " ended experiment cleanup." << endl;
+   #endif 
+
  }
 
  void nodeCleanUp()
@@ -573,24 +581,23 @@ void printPerfViz(int id)
   printIterTimingHistograms(id);
 }
 
-void setupOutFile(char* perfTestsFileName, char** argv)
+void setupOutFile(char** argv)
 {
-  snprintf(perfTestsFileName, 127, "outFile%d_%d_%d_%d_%d_%d.dat",atoi(argv[3]), atoi(argv[4]), atoi(argv[1]), atoi(argv[2]), atoi(argv[9]), atoi(argv[5]) , atoi(argv[8]));                                                                                  
-  perfTestOutput = fopen("outFilePerfTests.dat", "a+");                                                                 
-  perfTestOutput_Temp = fopen(perfTestsFileName, "w");                         
-  if(perfTestOutput != NULL)  {                                                                    
-    fprintf(perfTestOutput, "#\t%ld_%d_%d_%d_%d_%d_%d\n",                                                                   
-	    atol(argv[3]), atoi(argv[4]),                                                                               
-	    atoi(argv[1]), atoi(argv[2]),                                                                                      
-	    atoi(argv[9]), atoi(argv[5]),                                                                                        
-	    atoi(argv[8])  );                                                                  
-    fprintf(perfTestOutput_Temp, "#\t%ld_%d_%d_%d_%d_%d_%d\n",                                                                       
+
+  int numCharsFromBuffer = 127;
+  int charCount = snprintf(perfTestsFileName, numCharsFromBuffer, "outFile%ld_%d_%d_%d_%d_%d_%d.dat",atol(argv[3]), atoi(argv[4]), atoi(argv[1]), atoi(argv[2]), atoi(argv[9]), atoi(argv[5]) , atoi(argv[8]));                                                                                  
+  perfTestOutput = fopen("outFilePerfTests.dat", "a+"); 
+  perfTestOutput_Temp = fopen(perfTestsFileName, "w");
+  if(perfTestOutput != NULL)  {
+    fprintf(perfTestOutput, "#\t%ld_%d_%d_%d_%d_%d_%d\n", 
+	    atol(argv[3]), atoi(argv[4]), atoi(argv[1]), atoi(argv[2]),                                                                            atoi(argv[9]), atoi(argv[5]), atoi(argv[8]));
+    fprintf(perfTestOutput_Temp, "#\t%ld_%d_%d_%d_%d_%d_%d\n", 
 	    atol(argv[3]), atoi(argv[4]),  atoi(argv[1]),atoi(argv[2]),                                                          
 	    atoi(argv[9]), atoi(argv[5]),  atoi(argv[8]) );                                                                        
-  }                                                                                            
-  fclose(perfTestOutput);                                                                                                            
+  }
+  fclose(perfTestOutput);
   fclose(perfTestOutput_Temp);
-}
+} // end setupOutfile
 
 /*
 void collectPerfStats(int threadID, int its)	
