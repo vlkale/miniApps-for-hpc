@@ -78,11 +78,11 @@
 
       !    Variables for parameters of application
       INTEGER TIMESTEP
-      integer, PARAMETER :: probSize = 16
+      integer, PARAMETER :: probSize = 512
       integer :: N ! x dimension  of mesh  -TODO: change variable name to Nx
       integer :: Ny ! y dimension of mesh - TODO:
-      integer, PARAMETER :: NUM_TIMESTEPS = 10
-      integer, parameter :: NUM_FLOP = 1
+      integer, PARAMETER :: NUM_TIMESTEPS = 100
+      integer, parameter :: NUM_FLOP = 10
 
       integer :: nSteps
       integer :: FLOP
@@ -289,7 +289,8 @@
 ! Note: when using MPI, each MPI process invokes the below.
 ! Consider different schemes here, including GPU direct and copying the entire data array into the matrix
 
-!Note : we  don't need create(k) since we have acc loop seq
+! Note : we  dont need create(k) since we have acc loop seq 
+
 !$ACC kernels present(a(1:ht, 1:N+2)) pcreate(b(2:ht-1, 2:N+1)) copyin(topHalo(1:N+2), bottomHalo(1:N+2)) &
 !$ACC copyout(topBoundary(1:N+2), bottomBoundary(1:N+2)) pcopyin(rank, size)
 
@@ -321,7 +322,7 @@
            end if
 
 ! The k loop is used to vary computation per timestep.
-! Note that we don't loop interchange for stride-1 access of data array.
+! Note that we dont loop interchange for stride-1 access of data array.
 
 !$ACC loop seq
            do k = 1, FLOP
@@ -412,7 +413,8 @@
            end if
 
 
-!We don't do loop interchange for now.
+! We dont do loop interchange for now.
+
 do k = 1, FLOP
 !$OMP PARALLEL private(j)
 !$OMP DO SCHEDULE(STATIC, 4) collapse(2)
@@ -453,7 +455,7 @@ do k = 1, FLOP
 !$OMP END PARALLEL
 #endif
 
-        call MPI_BARRIER (MPI_COMM_WORLD, ierror)
+      call MPI_BARRIER (MPI_COMM_WORLD, ierror)
       end do ! end timestep
 
 #ifdef HAVE_OPENACC

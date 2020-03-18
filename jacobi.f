@@ -340,7 +340,8 @@ end do
 
       end MODULE meshcomp
 
-      program stencil
+      ! program stencil
+      program main 
       !use util
       use meshcomp
       use iso_c_binding, only: c_int, c_double, c_ptr, c_null_ptr
@@ -695,4 +696,4 @@ end do
       call MPI_Finalize(ierror)
       stop
 
-      end program stencil
+      end program main
