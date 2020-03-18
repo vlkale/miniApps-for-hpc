@@ -35,6 +35,9 @@ stencil_MPIopenacc: stencil.c
 stencil_MPIopenmp: stencil.c
 	$(CC) stencil.c $(CCFLAGS) $(OPENMPFLAGS) -o stencil_MPIopenmp
 
+stencil_MPIopenmpgpu: stencil.C
+	$(CXX) -Xclang -openmp -L/usr/local/opt/llvm/lib -lomp stencil.C -o stencil_MPIopenmpgpu
+
 jacobi_MPIf: jacobi.f
 	$(FC) jacobi.f $(FCFLAGS) -o jacobi_MPIf
 
