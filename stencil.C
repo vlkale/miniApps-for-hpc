@@ -43,7 +43,7 @@ int POINTER_SWAP=1; // swap pointers of arrays instead of cell copy of arrays (s
 
 
 // Experimental methodology and data collection. 
-#define NUM_TRIALS 3
+#define NUM_TRIALS 1
 #define HISTOGRAM_NUM_BINS 100
 #define DATA_COLLECTION 1
 #define HISTOGRAM_GENERATION 1
@@ -82,7 +82,7 @@ double fs;
 
 
 /* -- Debugging -- */
-//#define VERBOSE 0
+ #define VERBOSE 0
 
 /* --  Performance Measurement -- */
 double totalTime = 0.0;
@@ -284,8 +284,11 @@ double* jacobi3D(int threadID, double* resultMatrix)
 
       tdiff = 0.0; 
       // partitioning of slabs to threads. 
-      startj = 1 + (Y/numThreads)*threadID;
-      endj = startj + Y/numThreads;
+      // startj = 1 + (Y/numThreads)*threadID;
+      // endj = startj + Y/numThreads;
+
+      startj = 0;
+      endj = Y;
       // TODO: Add PAPI here for collecting cache misses 
     
       // TODO: figure out how to separate gpu diff from node diff .
@@ -295,11 +298,14 @@ double* jacobi3D(int threadID, double* resultMatrix)
       // map(tofrom: gpudiff) 
 	  /* Note:  The variable sum is now mapped with tofrom, for correctexecution with 4.5 (and pre-4.5) compliant compilers. See Devices Intro.S-17*/ 
 
-      // #pragma omp for schedule (guided, 4) // can use user-defined schedules here. 
 
-      #pragma omp target map(to: u[0:(X*Y*Z)], v[0:(X*Y*Z)]) 
-      #pragma omp teams num_teams(8) thread_limit(16) 
-      #pragma omp distribute parallel for dist_schedule(static, 1024) schedule(static, 64) 
+
+      //      #pragma omp target map(to: u[0:(X*Y*Z)], v[0:(X*Y*Z)]) 
+      // #pragma omp teams num_teams(8) thread_limit(16) 
+      // #pragma omp distribute parallel for dist_schedule(static, 1024) schedule(static, 64) 
+
+      // can use user-defined schedules here. 
+      #pragma omp for schedule (guided)
       for(j = startj ; j < endj ; j++)
 	{
 	  for(i = 1; i < X-1; i++)
@@ -332,11 +338,14 @@ double* jacobi3D(int threadID, double* resultMatrix)
       // TODO : need to add this back in .  
 	  /* MPI_Allreduce(&diff,  &global_diff, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD); */
 	}
-#pragma omp single 
+
+#pragma omp single
 	its++;
 	
+#pragma omp barrier 
+
 	if ( /* (global_diff <= EPSILON) */ (its >= numTimesteps) )
-	  { 	
+	  {
 	    // #pragma omp master
 	    #ifdef VERBOSE
 	    printf("converged or completed max jacobi iterations.\n");
@@ -346,9 +355,11 @@ double* jacobi3D(int threadID, double* resultMatrix)
 	else 
 	  {
 #pragma omp master 
+	    {
 #ifdef DEBUG 
 	    cout << "Process " << procID <<  " finished Jacobi iteration " << its << endl;
 #endif
+	    }
 	  }
     } // END WHILE loop of Jacobi Iterative Computation 
 
@@ -446,6 +457,7 @@ void initializeExperiment(int threadID, int p)
    /* this is to take care of inconsistent naming I have done(TODO: change variable names) */
    p = numprocs;
    id = procID;
+   numThreads = 4;
    MPI_Barrier(MPI_COMM_WORLD);
    if(input_argc <= 1)
      {
@@ -538,10 +550,10 @@ void initializeExperiment(int threadID, int p)
 #endif 
    free(u);
    free(w);
-   free(myLeftBoundary);
-   free(myRightBoundary);
-   free(myLeftGhostCells );
-   free(myRightGhostCells);
+   // free(myLeftBoundary);
+   //free(myRightBoundary);
+   //free(myLeftGhostCells );
+   //free(myRightGhostCells);
    #ifdef VERBOSE
    if (procID == 0)
      cout << " ended experiment cleanup." << endl;
@@ -762,6 +774,7 @@ int main(int argc, char** argv)
   MPI_Init (&argc, &argv);
   MPI_Comm_size (MPI_COMM_WORLD, &numprocs);
   MPI_Comm_rank (MPI_COMM_WORLD, &procID);
+ 
   int numCores = NUM_CORES;
   int numNodes = NUM_NODES;
   /*  cpu_set_t *cpuset; */
@@ -789,6 +802,8 @@ int main(int argc, char** argv)
   //  processesPerNode = numprocs/numNodes;
   // int procIDWithinNode = procID%processesPerNode;
 
+  MPI_Barrier(MPI_COMM_WORLD);
+
   int dataSize = X*Y*Z;
   resultMatrix = (double*) malloc(sizeof(double)*dataSize); 
   u = (double*) malloc(sizeof(double)*dataSize); 
@@ -800,9 +815,17 @@ int main(int argc, char** argv)
   myLeftGhostCells = (double*) malloc(ghostSize*sizeof(double));
    myRightGhostCells = (double*) malloc(ghostSize*sizeof(double));
 
-#pragma omp parallel 
+   int tid;
+#pragma omp parallel private(tid) num_threads(numThreads)
       {
-	int tid = omp_get_thread_num();
+        tid = omp_get_thread_num();
+
+#ifdef VERBOSE
+	if(VERBOSE >=0)
+	  cout << "Rank " << procID << " thread ID " << omp_get_thread_num() << " tid "  << tid << " initializing" << endl;
+#endif
+
+
 #pragma omp master 
 	startTime_Init = omp_get_wtime();
 	initializeExperiment(tid, numprocs);
@@ -812,12 +835,18 @@ int main(int argc, char** argv)
 
       MPI_Barrier(MPI_COMM_WORLD);
 
-#pragma omp parallel
+#pragma omp parallel private(tid)
       {
-	int tid = omp_get_thread_num();
+        int tid = omp_get_thread_num();
       /* BEGIN MAIN EXPERIMENTATION  */
       startTime_Experiment = 0.0;
       endTime_Experiment = 0.0;
+
+#ifdef VERBOSE
+	if(VERBOSE >=0)
+	  cout << "Rank " << procID << " thread ID " << omp_get_thread_num() << " tid "  << tid << " initializing" << endl;
+#endif
+
   #pragma omp barrier
       startTime_Experiment = omp_get_wtime(); // TODO: should really make this timer an inlined function 
       double* resMat;
@@ -857,7 +886,9 @@ int main(int argc, char** argv)
 
 // nodeCleanUp(); 
 
+//exit(-1);
  rcProc = MPI_Finalize();
  cout << "Exit code is: " << rcProc << endl;
+
  return 0;
 } // end MAIN

@@ -9,7 +9,9 @@ include make-cori-gpu.def
 # To use the compiler that compiles code below, you must first type 'use mvapich2-pgi-2.1' on the commandline.
 #include make-surface.def
 
-all: stencil_MPIopenaccf stencil_MPIopenmpf jacobi_MPIopenaccf jacobi_MPIopenmpf stencil_MPIopenaccf-ua jacobi_MPIopenaccf-ua stencil_MPIopenmpf-ua jacobi_MPIopenmpf-ua
+#all: stencil_MPIopenaccf stencil_MPIopenmpf jacobi_MPIopenaccf jacobi_MPIopenmpf stencil_MPIopenaccf-ua jacobi_MPIopenaccf-ua stencil_MPIopenmpf-ua jacobi_MPIopenmpf-ua
+
+all: stencil_MPIopenmpgpu stencil_MPIopenmpf
 
 stencil_MPIf: stencil.f
 	$(FC) stencil.f $(FCFLAGS) -o stencil_MPIf
@@ -36,7 +38,7 @@ stencil_MPIopenmp: stencil.c
 	$(CC) stencil.c $(CCFLAGS) $(OPENMPFLAGS) -o stencil_MPIopenmp
 
 stencil_MPIopenmpgpu: stencil.C
-	$(CXX) -Xclang -openmp -L/usr/local/opt/llvm/lib -lomp stencil.C -o stencil_MPIopenmpgpu
+	$(CXX) -Xpreprocessor -fopenmp  stencil.C -o stencil_MPIopenmpgpu -lomp
 
 jacobi_MPIf: jacobi.f
 	$(FC) jacobi.f $(FCFLAGS) -o jacobi_MPIf
@@ -57,4 +59,4 @@ jacobi_MPIopenmpf-ua_withod: jacobi.f
 	$(FC) jacobi.f $(FCFLAGS) $(OPENMPFLAGS) -DUSE_ALLOCATABLE -o jacobi_MPIopenmpf-ua_withod
 
 clean:
-	rm -rf stencil_MPIopenaccf jacobi_MPIopenaccf stencil_MPIopenaccf-ua jacobi_MPIopenaccf-ua stencil_MPIopenmpf jacobi_MPIopenmpf stencil_MPIopenmpf-ua jacobi_MPIopenmpf-ua  stencil_MPIf jacobi_MPIf stencil_MPIf-ua jacobi_MPIf-ua *.core
+	rm -rf stencil_MPIopenaccf jacobi_MPIopenaccf stencil_MPIopenaccf-ua jacobi_MPIopenaccf-ua stencil_MPIopenmpf jacobi_MPIopenmpf stencil_MPIopenmpf-ua jacobi_MPIopenmpf-ua  stencil_MPIf jacobi_MPIf stencil_MPIf-ua jacobi_MPIf-ua stencil_MPIopenmpgpu a.out *.core

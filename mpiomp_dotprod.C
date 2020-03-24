@@ -27,6 +27,7 @@ int main (int argc, char* argv[])
   int i, myid, tid, numprocs, len=VECLEN, threads=NUMTHREADS, timesteps = NUM_TIMESTEPS;
   double *a, *b;
   double mysum, allsum, sum, psum;
+  double execTime = 0.0;
 
   /* MPI Initialization */
   MPI_Init (&argc, &argv);
@@ -76,6 +77,7 @@ int main (int argc, char* argv[])
   /* Initialize OpenMP reduction sum */
   sum = 0.0;
 
+
 #pragma omp parallel private(i,tid,psum) num_threads(threads)
   {
     psum = 0.0;
@@ -86,25 +88,41 @@ int main (int argc, char* argv[])
 	printf("Task %d using %d threads\n",myid, threads);
       }
 
+    if(myid ==0)
+    execTime = - omp_get_wtime();
+
 #pragma omp for reduction(+:sum)
     for (i=0; i<len*threads; i++)
       {
 	sum += (a[i] * b[i]);
 	psum = sum;
       }
+#ifdef VERBOSE
     printf("Task %d thread %d partial sum = %f\n",myid, tid, psum);
+#endif
   }
+
+
 
   /* Print this task's partial sum */
   mysum = sum;
+#ifdef VERBOSE
   printf("Task %d partial sum = %f\n",myid, mysum);
+#endif 
 
   /* After the dot product, perform a summation of results on each node */
   MPI_Reduce (&mysum, &allsum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+  if(myid ==0)
+    execTime += omp_get_wtime();
+
   if (myid == 0) 
     printf ("Done. Hybrid version: global sum  =  %f \n", allsum);
+
+  if (myid == 0) 
+    printf("Total time for dot prod = %f \n", execTime);
 
   free (a);
   free (b);
   MPI_Finalize();
-}   
+}
