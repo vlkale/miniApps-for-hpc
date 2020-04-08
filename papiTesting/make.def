@@ -1,0 +1,27 @@
+# Makefile definition file for PAPI example code 
+
+# MAC OS 
+
+FC = mpif90-mpich-gcc5 
+F77 = mpif77-mpich-gcc5 
+CC = mpicc-mpich-gcc5
+
+FCFLAGS=-fPIC -ffree-form -g
+F77FLAGS=-fPIC -ffree-form -g
+CCFLAGS= -fPIC -g -lpapi
+
+OPENACCFLAGS=-fopenacc
+OPENMPFLAGS=-fopenmp  -lpthread
+
+# BW - cray
+
+# FC = ftn
+# F77 = ftn
+# CC = cc
+
+# FCFLAGS=-fPIC -Mfree -g
+# F77FLAGS=-fPIC -Mfree -g
+# CCFLAGS= -fPIC -Mfree -g
+
+# OPENACCFLAGS= -h acc -ta=nvidia:tesla
+# OPENMPFLAGS= -h omp
