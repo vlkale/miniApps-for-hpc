@@ -1,4 +1,4 @@
-      program dProd
+      program ompPerfTest.f90
       ! use mpi
 
       use iso_c_binding, only: c_int, c_double, c_ptr, c_null_ptr
