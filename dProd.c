@@ -21,13 +21,14 @@
 #include <omp.h>
 #endif
 
-#include <cuda.h> 
+#include <cuda.h>
 
 //#ifdef PAPI
 //#include <papi.h>
-//#endif
+//#endif 
 
 #include <mpi.h>
+
 #define MAX_ITER 100000
 #define NUM_ITERS 20
 #define PROB_SIZE 10000
@@ -38,6 +39,7 @@ __global__ void mult( int *a, int *b, int *c ) {
       c[tid] = a[tid]*b[tid];
   }
 }
+
 
 int main (int argc, char* argv[] )
 {
