@@ -300,12 +300,12 @@ double* jacobi3D(int threadID, double* resultMatrix)
 
 
 
-      //      #pragma omp target map(to: u[0:(X*Y*Z)], v[0:(X*Y*Z)]) 
-      // #pragma omp teams num_teams(8) thread_limit(16) 
-      // #pragma omp distribute parallel for dist_schedule(static, 1024) schedule(static, 64) 
+      #pragma omp target map(to: u[0:(X*Y*Z)], v[0:(X*Y*Z)]) 
+      #pragma omp teams num_teams(8) thread_limit(16) 
+      #pragma omp distribute parallel for dist_schedule(static, 1024) schedule(static, 64) 
 
       // can use user-defined schedules here. 
-      #pragma omp for schedule (guided)
+      // #pragma omp for schedule (guided)
       for(j = startj ; j < endj ; j++)
 	{
 	  for(i = 1; i < X-1; i++)
