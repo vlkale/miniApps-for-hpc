@@ -4,7 +4,7 @@
 *  The kernel is based on Quinn et al.
 *
 *  
-*  Last Revised: 3/16/2020  Vivek Kale 
+*  Last Revised: 3/1/2022  Vivek Kale 
 *  Brookhaven National Laboratory / Stony Brook University
 *************************************************************/
 
@@ -21,13 +21,16 @@
 
 using namespace std;
 
-#define MAX_THREADS 16
+
+
 #define EPSILON .0000001
 
-#define USE_HYBRID_MPI 1
+#define USE_HYBRID_MPI 0
 #define BLOCKING_MPI 0
 int POINTER_SWAP=1; // swap pointers of arrays instead of cell copy of arrays (set to 0 for the that)
 
+
+#define runEXP
 
 #define JACOBI_ITERATIONS 5
 
@@ -40,6 +43,11 @@ int POINTER_SWAP=1; // swap pointers of arrays instead of cell copy of arrays (s
  
 #define NUM_CORES 16
 #define NUM_NODES 1024
+#define MAX_THREADS 16
+#define CHUNK_SZ 4
+
+
+int numTasks = 1000; 
 
 
 // Experimental methodology and data collection. 
@@ -82,7 +90,7 @@ double fs;
 
 
 /* -- Debugging -- */
- #define VERBOSE 0
+//#define VERBOSE 0
 
 /* --  Performance Measurement -- */
 double totalTime = 0.0;
@@ -103,7 +111,7 @@ pthread_mutex_t mutexdiff;
 double trialTimes[NUM_TRIALS];
 double minThreadTrialTimes[NUM_TRIALS];
 double maxThreadTrialTimes[NUM_TRIALS];
-int numTrials = 1;
+int numTrials = 5;
 
 int histogram[HISTOGRAM_NUM_BINS]; // for performance visualization of distribution of iteration timings
 
@@ -156,7 +164,7 @@ double* runExperiment(int tid, double* result);
 #define Z_dim 16
 
 int Z = 1, Y = 1, X = 1; // default dimensions 
-int numTimesteps = 0; 
+int numTimesteps = 5; 
 int Zdim, Ydim, Xdim;
 
 double* u;
@@ -177,7 +185,6 @@ double* myLeftGhostCells;
 double* myRightGhostCells;
 
 double* jacobi3D(int, double*);
-
 
 
 double* runExperiment(int tid, double* result) // todo: really ought to change this to a void for generic type
@@ -204,7 +211,7 @@ double* jacobi3D(int threadID, double* resultMatrix)
   int i, j, k;
   int its =0;
   double tdiff, t_start, t_end;
-  double tickTime;  
+  double tickTime;
   int Y_size;
   double threadIdleBegin = 0.0;
 
@@ -233,7 +240,7 @@ double* jacobi3D(int threadID, double* resultMatrix)
       }
     }
 
-  while (1)
+  while (its < numTimesteps)
     {
       #pragma omp master
        MPI_Barrier(MPI_COMM_WORLD);
@@ -282,7 +289,9 @@ double* jacobi3D(int threadID, double* resultMatrix)
 	    }
 	}
 
-      tdiff = 0.0; 
+  int ndevs = omp_get_num_devices(); 
+
+  tdiff = 0.0; 
       // partitioning of slabs to threads. 
       // startj = 1 + (Y/numThreads)*threadID;
       // endj = startj + Y/numThreads;
@@ -296,18 +305,21 @@ double* jacobi3D(int threadID, double* resultMatrix)
       // TODO: tune num teams , thread limit , distschedule , chunk size 	  
       // patition loop between CPU and GPUs 
       // map(tofrom: gpudiff) 
-	  /* Note:  The variable sum is now mapped with tofrom, for correctexecution with 4.5 (and pre-4.5) compliant compilers. See Devices Intro.S-17*/ 
-
-
-
-      #pragma omp target map(to: u[0:(X*Y*Z)], v[0:(X*Y*Z)]) 
-      #pragma omp teams num_teams(8) thread_limit(16) 
-      #pragma omp distribute parallel for dist_schedule(static, 1024) schedule(static, 64) 
-
-      // can use user-defined schedules here. 
-      // #pragma omp for schedule (guided)
+	  /* Note:  The variable sum is now mapped with tofrom, for correctexecution with 4.5 (and pre-4.5) compliant compilers. See Devices Intro.S-17*/
+      
+       // can use user-defined schedules here. 
+#pragma omp for schedule (guided, CHUNK_SZ)
       for(j = startj ; j < endj ; j++)
 	{
+	  
+      // can use user-defined schedules here. 
+	  //	  int devNum = gpu_scheduler_dynamic_ad(occupancies, ndevs taskWeight) ;
+	  
+	  int devNum = threadID%ndevs;
+	  
+	  // #pragma omp target map(to: u[0:(X*Y*Z)], w[0:(X*Y*Z)]) device(devNum)
+	  // #pragma omp teams num_teams(65536) thread_limit(256) 
+	  //    #pragma omp distribute parallel for dist_schedule(static, 1024) schedule(static, 64) 
 	  for(i = 1; i < X-1; i++)
 	    {
 	      for (k = 1; k < Z - 1; k++) 
@@ -352,7 +364,7 @@ double* jacobi3D(int threadID, double* resultMatrix)
 	    #endif 
 	    break;
 	  } 
-	else 
+	else
 	  {
 #pragma omp master 
 	    {
@@ -816,6 +828,9 @@ int main(int argc, char** argv)
    myRightGhostCells = (double*) malloc(ghostSize*sizeof(double));
 
    int tid;
+
+   for (int trialNum = 0; trialNum < numTrials; trialNum++)
+     {
 #pragma omp parallel private(tid) num_threads(numThreads)
       {
         tid = omp_get_thread_num();
@@ -833,10 +848,12 @@ int main(int argc, char** argv)
 	endTime_Init = omp_get_wtime();
       }
 
+#pragma omp master 
       MPI_Barrier(MPI_COMM_WORLD);
 
 #pragma omp parallel private(tid)
       {
+	int numDevs = omp_get_num_devices();
         int tid = omp_get_thread_num();
       /* BEGIN MAIN EXPERIMENTATION  */
       startTime_Experiment = 0.0;
@@ -851,13 +868,35 @@ int main(int argc, char** argv)
       startTime_Experiment = omp_get_wtime(); // TODO: should really make this timer an inlined function 
       double* resMat;
       // resMat =
+
+#ifdef runEXP
       runExperiment(tid, resultMatrix);
-    
+
+#else 
+      
+      int pickedDev = 0;
+#pragma omp for schedule(guided, CHUNK_SZ)
+      {
+	
+	for (int i = 0; i< numTasks ; i++)
+	  {
+	    pickedDev = tid%numDevs;   
+	  #pragma omp target teams distribute parallel for simd map(tofrom: u[0:X*Y*Z], w[0:X*Y*Z]) device(pickedDev)
+	  for (int j = 0; j < X*Y*Z; j++)
+	    {
+	      u[j] = j*1.0*w[j];
+	    }
+	  }
+      }
+
+#endif 
+      
 #pragma omp master
       {
-	  endTime_Experiment = MPI_Wtime();
+	endTime_Experiment = omp_get_wtime();
+	MPI_Barrier(MPI_COMM_WORLD);    
       }
-      //MPI_Barrier(MPI_COMM_WORLD);    
+
 
 #ifdef SHOWOUTPUT
       // printResults(resultMatrix, procID);
@@ -872,17 +911,19 @@ int main(int argc, char** argv)
    //    endTime_Experiment = omp_get_wtime(); 
    if (procID == 0) 
      {
-       endTime_Experiment = MPI_Wtime(); 
+       endTime_Experiment = omp_get_wtime(); 
        cout << "Time for experiment's trial = " << endTime_Experiment - startTime_Experiment << endl;
      }
  }
 
  } // end omp parallel
-    
-      experimentCleanUp();
+
+      // MPI_Barrier(MPI_COMM_WORLD);
+         experimentCleanUp();
+     }
 
 //  END MAIN EXPERIMENTATION	
-// MPI_Barrier(MPI_COMM_WORLD);
+
 
 // nodeCleanUp(); 
 

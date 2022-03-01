@@ -1,4 +1,8 @@
-include make-cori-gpu.def
+# include make-cori-gpu.def
+
+#include make-spock.def
+
+include make-summit.def
 
 # macos
 #include make-macos.def
@@ -11,7 +15,7 @@ include make-cori-gpu.def
 
 #all: stencil_MPIopenaccf stencil_MPIopenmpf jacobi_MPIopenaccf jacobi_MPIopenmpf stencil_MPIopenaccf-ua jacobi_MPIopenaccf-ua stencil_MPIopenmpf-ua jacobi_MPIopenmpf-ua
 
-all: stencil_MPIopenmpgpu stencil_MPIopenmpf
+all: stencil_MPIopenmpgpu 
 
 stencil_MPIf: stencil.f
 	$(FC) stencil.f $(FCFLAGS) -o stencil_MPIf
@@ -38,7 +42,7 @@ stencil_MPIopenmp: stencil.c
 	$(CC) stencil.c $(CCFLAGS) $(OPENMPFLAGS) -o stencil_MPIopenmp
 
 stencil_MPIopenmpgpu: stencil.C
-	$(CXX) -Xpreprocessor -fopenmp  stencil.C -o stencil_MPIopenmpgpu -lomp
+	$(CXX) $(CXXFLAGS) $(OPENMPFLAGS)  stencil.C -o stencil_MPIopenmpgpu
 
 jacobi_MPIf: jacobi.f
 	$(FC) jacobi.f $(FCFLAGS) -o jacobi_MPIf

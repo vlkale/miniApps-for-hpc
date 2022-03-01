@@ -1,0 +1,26 @@
+# Makefile define file for mesh computation program on spock
+FC=ftn
+F77=ftn
+CLANG=clang
+CLANGXX=clang++
+CC= $(CLANG)
+CXX= $(CLANGXX)
+
+
+# Use -Mpreprocess since we are compiling a .f file
+FCFLAGS=-fPIC -std=gnu -cpp -ffree-form -g -I/usr/local/tools/mvapich-pgi-2.1/include/ -L/opt/cray/pe/pmi/5.0.14/lib64
+
+# Basic flag for trading off numerical accuracy with performance
+# -Mfprelaxed -Mpfi -Mpfo
+
+# check usage of this  flag
+# -Msafeptr
+
+F77FLAGS=-fPIC -cpp -g -L/opt/cray/pe/pmi/5.0.14/lib64
+CCFLAGS=  -std=c++14
+
+OPENACCFLAGS= -fopenacc -L/opt/cudatoolkit-7.5/lib64/ -DHAVE_OPENACC -L/usr/local/tools/mvapich-pgi-2.1/lib/
+# OPENMPFLAGS= -openmp  -L/usr/local/tools/mvapich2-pgi-2.1/lib/ -DHAVE_OPENMP
+
+OPENMPFLAGS = -fopenmp -fopenmp-targets=nvptx64 -Xopenmp-target -march=sm_70 -fopenmp-version=51 -DHAVE_OPENMP
+# OPENMPFLAGS= -fopenmp -DHAVE_OPENMP -fopenmp-targets=amdgcn-amd-amdhsa -Xopenmp-target=amdgcn-amd-amdhsa -march=gfx908 -I${ROCM_PATH}/include -L${ROCM_PATH}/lib -lamdhip64 -lhsa-runtime64
