@@ -308,18 +308,43 @@ double* jacobi3D(int threadID, double* resultMatrix)
 	  /* Note:  The variable sum is now mapped with tofrom, for correctexecution with 4.5 (and pre-4.5) compliant compilers. See Devices Intro.S-17*/
       
        // can use user-defined schedules here. 
+
+	  
+     #ifdef USE_KOKKOS
+	  
+	  // use kokkos remote spaces for multi-GPU execution  
+     Kokkos::deep_copy(w, w_hostmirror); 
+	  
+     Kokkos::parallel_for(0, Y-1, KOKKOS_LAMBDA (int j) { 
+	     
+	 for(i = 1; i < X-1; i++)
+	    {
+	      for (k = 1; k < Z - 1; k++) 
+		w[A(i,j,k)] = ( 
+			       u[A(i-1,j,k)]+ u[A(i+1,j,k)] 
+			       + u[A(i,j-1,k)] + u[A(i, j+1, k)]+
+			       + u[A(i, j, k-1)] + u[A(i,j, k+1)]
+			       + u[A(i, j, k)]    
+				)*coeff;
+	    }
+
+  } ) ; 
+	  
+	  
+	 Kokkos::deep_copy( w_hostmirror, w);  
+     #endif 
+	  
+#ifdef USE_OMP 
 #pragma omp for schedule (guided, CHUNK_SZ)
       for(j = startj ; j < endj ; j++)
 	{
-	  
       // can use user-defined schedules here. 
-	  //	  int devNum = gpu_scheduler_dynamic_ad(occupancies, ndevs taskWeight) ;
-	  
-	  int devNum = threadID%ndevs;
-	  
+	  //	  int devNum = gpu_scheduler_dynamic_ad(occupancies, ndevs taskWeight) ;  
+	  int devNum = threadID%ndevs; 
 	  // #pragma omp target map(to: u[0:(X*Y*Z)], w[0:(X*Y*Z)]) device(devNum)
 	  // #pragma omp teams num_teams(65536) thread_limit(256) 
 	  //    #pragma omp distribute parallel for dist_schedule(static, 1024) schedule(static, 64) 
+	      
 	  for(i = 1; i < X-1; i++)
 	    {
 	      for (k = 1; k < Z - 1; k++) 
@@ -880,7 +905,7 @@ int main(int argc, char** argv)
 	
 	for (int i = 0; i< numTasks ; i++)
 	  {
-	    pickedDev = tid%numDevs;   
+	    pickedDev = tid%numDevs;
 	  #pragma omp target teams distribute parallel for simd map(tofrom: u[0:X*Y*Z], w[0:X*Y*Z]) device(pickedDev)
 	  for (int j = 0; j < X*Y*Z; j++)
 	    {
